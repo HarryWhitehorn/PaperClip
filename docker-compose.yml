@@ -1,0 +1,30 @@
+version: '3.1'
+
+services:
+
+  adminer:
+    image: adminer
+    # restart: always
+    ports:
+      - 8080:8080
+
+  db:
+    image: mysql:5.6
+    # restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - 3306:3306
+
+  # app:
+  #   build: ./app
+  #   restart: always
+  #   ports:
+  #     - 8000:5000
+  #   environment:
+  #     FLASK_APP: /app
+  #     FLASK_ENV: development
+  #   links:
+  #     - db
+  #   depends_on:
+  #     - db
