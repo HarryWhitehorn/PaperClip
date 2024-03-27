@@ -1,6 +1,7 @@
 from flask import Blueprint, redirect, render_template, request, url_for
 from flask_login import login_required, current_user
-from . import db
+import json
+from . import db, Statement
 
 main = Blueprint("main", __name__)
 
@@ -23,3 +24,18 @@ def error():
     errorMessage = "Not Found: Requested file was not found"
     return render_template("error.html", errorCode=errorCode, errorMessage=errorMessage, danger=True)
 
+@main.route("/lobby/<int:lobbyId>")
+def match(lobbyId):
+    data = {"lobby":f"{Statement.getLobby(lobbyId)}", "members":f"{Statement.getMembers(lobbyId)}"}
+    return data
+
+@main.route("/lobby/create/<int:gameId>")
+def createLobby(gameId, userId=None):
+    lobby = Statement.createLobby(gameId,userId)
+    data = {"lobby":f"{Statement.getLobby(lobby.id)}", "members":f"{Statement.getMembers(lobby.id)}"}
+    return data
+
+@main.route("/sandbox")
+def sandbox():
+    print("snad")
+    return "snad"
