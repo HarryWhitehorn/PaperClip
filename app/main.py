@@ -26,16 +26,30 @@ def error():
 
 @main.route("/lobby/<int:lobbyId>")
 def match(lobbyId):
-    data = {"lobby":f"{Statement.getLobby(lobbyId)}", "members":f"{Statement.getMembers(lobbyId)}"}
+    data = _JsonLobby(lobbyId)
     return data
 
 @main.route("/lobby/create/<int:gameId>")
 def createLobby(gameId, userId=None):
-    lobby = Statement.createLobby(gameId,userId)
-    data = {"lobby":f"{Statement.getLobby(lobby.id)}", "members":f"{Statement.getMembers(lobby.id)}"}
+    lobby = Statement.createLobby(gameId, userId)
+    data = _JsonLobby(lobby.id)
     return data
+
+@main.route("/lobby/join/<int:lobbyId>")
+def joinLobby(lobbyId, userId=None):
+    lobby = Statement.joinLobby(lobbyId, userId)
+    data = _JsonLobby(lobby.id)
+    return data
+
+@main.route("/lobby/find/<int:gameId>")
+def findLobby(gameId):
+    lobbies = Statement.findLobbies(gameId)
+    return [_JsonLobby(lobby.id) for lobby in lobbies]
 
 @main.route("/sandbox")
 def sandbox():
     print("snad")
     return "snad"
+
+def _JsonLobby(lobbyId):
+    return {"lobby":f"{Statement.getLobby(lobbyId)}", "members":f"{Statement.getMembers(lobbyId)}"}

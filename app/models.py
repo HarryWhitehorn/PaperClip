@@ -59,7 +59,7 @@ class Lobby(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     game_id = db.Column(db.Integer, db.ForeignKey("game.id"), nullable=False) 
     members = db.relationship("Members", backref="lobby", cascade="all, delete", lazy=True)
-    max_players = db.Column(db.Integer) # to overwrite game max (must be fewer than Game.max_players)
+    # max_players = db.Column(db.Integer) # to overwrite game max (must be fewer than Game.max_players)
 
 
 class Statement():
@@ -71,6 +71,16 @@ class Statement():
     @staticmethod
     def getLobby(lobbyId):
         return Lobby.query.filter_by(id=lobbyId).scalar()
+    
+    @staticmethod
+    def getLobbySize(lobbyId):
+        return len(Members.query.filter_by(lobby_id=lobbyId).all())
+    
+    @staticmethod
+    def getIsLobbyFree(lobbyId):
+        lobby = Statement.getLobby(lobbyId)
+        game = Statement.getGame(lobby.game_id)
+        return Statement.getLobbySize(lobbyId) < game.max_players
     
     @staticmethod
     def getAccount(userId):
@@ -91,6 +101,24 @@ class Statement():
             db.session.add(member)
         db.session.commit()
         return lobby.id
+    
+    # join
+    @staticmethod
+    def joinLobby(lobbyId, userId):
+        lobby = Statement.getLobby(lobbyId)
+        if userId != None:
+            account = Statement.getAccount(userId)
+            member = Members(lobby_id=lobby.id,account_id=account.id)
+            db.session.add(member)
+        db.session.commit()
+        return lobby.id
+    
+    # find
+    @staticmethod
+    def findLobbies(gameId):
+        lobbies = Lobby.query.filter_by(game_id=gameId)
+        freeLobbies = [lobby for lobby in lobbies if Statement.getIsLobbyFree(lobby.id)]
+        return freeLobbies
     
     # delete
     @staticmethod
