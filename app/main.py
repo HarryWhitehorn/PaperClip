@@ -24,27 +24,41 @@ def error():
     errorMessage = "Not Found: Requested file was not found"
     return render_template("error.html", errorCode=errorCode, errorMessage=errorMessage, danger=True)
 
-@main.route("/lobby/<int:lobbyId>")
-def match(lobbyId):
-    data = _JsonLobby(lobbyId)
-    return data
+@main.route("/lobby", methods="POST")
+def viewLobby():
+    if request.method == "POST":
+        lobbyId = request.form["lobby"]
+        data = _JsonLobby(lobbyId)
+        return data
+    return {}
 
-@main.route("/lobby/create/<int:gameId>")
-def createLobby(gameId, userId=None):
-    lobby = Statement.createLobby(gameId, userId)
-    data = _JsonLobby(lobby.id)
-    return data
+@main.route("/lobby/create", methods="POST")
+def createLobby():
+    if request.method == "POST":
+        gameId = request.form["game"]
+        userId = request.form.get("user")
+        lobby = Statement.createLobby(gameId, userId)
+        data = _JsonLobby(lobby.id)
+        return data
+    return {}
 
-@main.route("/lobby/join/<int:lobbyId>")
-def joinLobby(lobbyId, userId=None):
-    lobby = Statement.joinLobby(lobbyId, userId)
-    data = _JsonLobby(lobby.id)
-    return data
+@main.route("/lobby/join", methods="POST")
+def joinLobby():
+    if request.method == "POST":
+        lobbyId = request.form["lobby"]
+        userId = request.form.get("user")
+        lobby = Statement.joinLobby(lobbyId, userId)
+        data = _JsonLobby(lobby.id)
+        return data
+    return {}
 
-@main.route("/lobby/find/<int:gameId>")
-def findLobby(gameId):
-    lobbies = Statement.findLobbies(gameId)
-    return [_JsonLobby(lobby.id) for lobby in lobbies]
+@main.route("/lobby/find", methods="POST")
+def findLobby():
+    if request.method == "POST":
+        gameId = request.form["game"]
+        lobbies = Statement.findLobbies(gameId)
+        return [_JsonLobby(lobby.id) for lobby in lobbies]
+    return {}
 
 @main.route("/sandbox")
 def sandbox():
