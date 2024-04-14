@@ -1,5 +1,6 @@
 from enum import Enum
 import struct
+import auth
 
 PACKET_TYPE_SIZE = 1 # 1 bits
 FLAGS_SIZE = 4 # 4 bits
@@ -18,10 +19,11 @@ class Type(Enum):
     DEFAULT = 0
     FRAG = 1
     ACK = 2
+    AUTH = 3
 
 class Packet:
     _packet_type = Type.DEFAULT
-    _flags = [0,0,0,0]  #f: [reliable, ack, compressed, encrypted]
+    _flags = [0,0,0,0]  #f: [reliable, checksum, compressed, encrypted]
     _sequence_id = 0 
 
     def __init__(self, seqId, flags=[0,0,0,0], packetType=Type.DEFAULT, data=None):
@@ -207,6 +209,44 @@ class AckPacket(Packet):
         header = cls._unpackHeader(rawP)
         return cls(*header)
     
+class AuthPacket(Packet):
+    def __init__(self, seqId, cert, publicEc, finished=b"\x00"*32, flags=[0, 0, 0, 0]):
+        super().__init__(seqId, flags, Type.AUTH)
+        self.cert = cert
+        self.publicEc = publicEc
+        self.finished = finished
+        
+    @classmethod
+    def _packHeader(cls, p):
+        header = super()._packHeader(p)
+        certBytes = p.cert.public_bytes(auth.serialization.Encoding.DER)
+        ecBytes = auth.getDerFromPublicEc(p.publicEc)
+        header.append(struct.pack("!H", len(certBytes)))
+        header.append(struct.pack("!B", len(ecBytes)))
+        header.append(certBytes)
+        header.append(ecBytes)
+        header.append(p.finished)
+        return header
+        
+    @classmethod
+    def _unpackHeader(cls, rawP):
+        header = super()._unpackHeader(rawP)
+        OFFSET = 6
+        certSize, ecSize = struct.unpack("!HB", rawP[3:OFFSET])
+        certBytes = rawP[OFFSET:certSize+OFFSET]
+        cert = auth.x509.load_der_x509_certificate(certBytes)
+        OFFSET += certSize
+        ecBytes = rawP[OFFSET:ecSize+OFFSET]
+        publicEc = auth.getPublicEcFromDer(ecBytes)
+        OFFSET += ecSize
+        finished = rawP[OFFSET:OFFSET+32]
+        return header[0], cert, publicEc, finished, header[1] 
+    
+    @classmethod
+    def unpack(cls, rawP):
+        header = cls._unpackHeader(rawP)
+        return cls(*header)
+    
 
 def unpack(rawP):
     packet_type = Type(rawP[0] >> 4)
@@ -217,6 +257,8 @@ def unpack(rawP):
             return FragPacket.unpack(rawP)
         case Type.ACK:
             return AckPacket.unpack(rawP)
+        case Type.AUTH:
+            return  AuthPacket.unpack(rawP)
         case _:
             raise TypeError(f"Invalid packet type {packet_type}")
             pass

@@ -3,6 +3,7 @@ import packet
 import threading
 import queue
 import time
+import auth
 
 class bcolors:
     HEADER = '\033[95m'
@@ -18,7 +19,7 @@ class bcolors:
 
 S_HOST = "127.0.0.1"
 S_PORT = 2024
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 2048 #1024 TODO: frag
 C_HOST = "127.0.0.1"
 C_PORT = S_PORT+1
 SLEEP_TIME = 0.1
@@ -27,6 +28,10 @@ class Node:
     _sequenceId = 0
     sequenceIdLock = threading.Lock()
     isRunning = threading.Event()
+    rsaKey = None
+    cert = None
+    ecKey = None
+    sessionKey = None
     
     def __init__(self, addr):
         self.socket = socket.socket(type=socket.SOCK_DGRAM)
@@ -36,6 +41,9 @@ class Node:
         self.sent_ack_buffer = [None for _ in range(packet.SEQUENCE_ID_SIZE)]
         self.recv_ack_buffer = [None for _ in range(packet.SEQUENCE_ID_SIZE)]
         self.queue = queue.Queue()
+        self.rsaKey = auth.generateRsaKey()
+        self.cert = auth.generateCertificate(self.rsaKey)
+        self.ecKey = auth.generateEcKey()
         self.socket.bind(self.addr)
         
     @property
@@ -99,6 +107,11 @@ class Node:
         self.incrementSequenceId()
         # self.sendPacket(addr, p)
         self.queue.put((addr,p))
+        
+    def queueAuth(self, addr, cert, publicEc, finished=b"\x00"*32):
+        p = packet.AuthPacket(self.sequenceId, cert, publicEc, finished)
+        self.incrementSequenceId()
+        self.queue.put((addr, p))
     
     # receives
     def receive(self):
@@ -109,7 +122,9 @@ class Node:
             case packet.Type.DEFAULT | packet.Type.FRAG:
                 return self.receiveDefault(p, addr)
             case packet.Type.ACK:
-                return self.receiveACK(p, addr)
+                return self.receiveAck(p, addr)
+            case packet.Type.AUTH:
+                return self.receiveAuth(p, addr)
             case _:
                 raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
     
@@ -117,12 +132,24 @@ class Node:
         if p.flags[packet.Flag.RELIABLE.value]:
             self.recv_ack_buffer[p.sequence_id] = True
             self.queueACK(addr, p.sequence_id)
+        return (p,addr)
     
     def _receiveFrag(self, p, addr):
-        pass
+        return (p,addr)
     
-    def receiveACK(self, p, addr):
+    def receiveAck(self, p, addr):
         self.sent_ack_buffer[p.ack_id] = True
+        return (p, addr)
+        
+    def receiveAuth(self, p: packet.AuthPacket, addr):
+        if self.sessionKey == None:
+            self.sessionKey = auth.generateSessionKey(self.ecKey, p.publicEc)
+            finished = auth.generateFinished(self.sessionKey, finishedLabel=b"node finished", messages=b"\x13") # TODO: give appropriate values for label and messages
+            self.queueAuth(addr, self.cert, self.ecKey.public_key(), finished)
+            if p.finished != b"\00"*32:
+                assert p.finished == finished
+                # TODO: send appropriate ACK (& wait for ACK else CRIT FAIL)
+        return (p,addr)
         
     def listen(self):
         print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")

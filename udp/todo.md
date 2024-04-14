@@ -5,11 +5,13 @@
 - [x] implement queue and repeat sending
 - [ ] test / deploy ack
 - [ ] implement logging
+- [ ] frag
 
 ## Bonus
 
 - [ ] congestion control
 - [ ] handshake
+    - [ ] DTLS
     - check space
     - auth (?)
 
@@ -27,6 +29,7 @@
 
 ## sanitation
 
+- [ ] change struct typed to unsigned
 - [ ] Error Handling
 - [ ] comments
     - [ ] type hints (?)
