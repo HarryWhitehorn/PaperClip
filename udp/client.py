@@ -1,5 +1,6 @@
-from node import Node, S_HOST, S_PORT, C_HOST, C_PORT
+from node import Node, bcolors
 import auth
+import packet
 # from queue import Queue
 # from . import ADDR,PORT
 
@@ -10,34 +11,52 @@ class Client(Node):
     
     @property
     def targetHost(self):
-        return self.targetAddr[0]
+        return self.targetAddr[0] if self.targetAddr != None else None
     
     @property
     def targetPort(self):
-        return self.targetAddr[1]
+        return self.targetAddr[1] if self.targetAddr != None else None
     
-    def queueDefault(self, data, flags=[0,0,0,0]):
+    def queueDefault(self, addr, data, flags=[0,0,0,0]):
         return super().queueDefault(self.targetAddr, data, flags)
     
-    def queueACK(self, seqId):
-        return super().queueACK(self.targetAddr, seqId)
+    def queueACK(self, addr, seqId, data=None):
+        return super().queueACK(self.targetAddr, seqId, data)
     
-    def queueAuth(self, finished=b"\x00"*32):
-        return super().queueAuth(self.targetAddr, self.cert, self.ecKey.public_key(), finished)
+    # def queueAuth(self, addr,):
+    #     return super().queueAuth(self.targetAddr, self.cert, self.ecKey.public_key())
     
-    def receiveAuth(self, p, addr):
-        if self.sessionKey == None:
-            self.sessionKey = auth.generateSessionKey(self.ecKey, p.publicEc)
-            finished = auth.generateFinished(self.sessionKey, finishedLabel=b"node finished", messages=b"\x13") # TODO: give appropriate values for label and messages
-            self.queueAuth(finished)
-            if p.finished != b"\00"*32:
-                assert p.finished == finished
-                # TODO: send appropriate ACK (& wait for ACK else CRIT FAIL)
-        return (p,addr)
+    def connect(self):
+        self.outboundThread.start()
+        self.queueAuth(self.targetAddr, self.cert, self.ecKey.public_key())
+        authPacket = None
+        ackPacket = None
+        finished = None
+        while True:
+            p, addr = self.receivePacket()
+            if p.packet_type == packet.Type.AUTH:
+                authPacket = p
+                self.sessionKey = auth.generateSessionKey(self.ecKey, p.publicEc)
+                if not Node.validateCert(p.cert):
+                    raise ValueError(f"Invalid peer cert {p.cert}")
+                self.queueFinished(self.targetAddr, p.sequence_id, self.sessionKey)
+            elif p.packet_type == packet.Type.ACK:
+                ackPacket = p
+                self.receiveAck(p, addr)
+            if authPacket != None and ackPacket != None:
+                break
+        if Node._generateFinished(self.sessionKey) == ackPacket.data:
+            # success
+            print(f"{bcolors.OKGREEN}Handshake success starting mainloop...{bcolors.ENDC}")
+            self.inboundThread.start()
+        else:
+            raise ValueError(f"Local finished value {Node._generateFinished(self.sessionKey)} does not match peer finished value {ackPacket.data}")
     
 if __name__ == "__main__":
+    from node import S_HOST, S_PORT, C_HOST, C_PORT
     from time import sleep
-    c = Client((C_HOST,C_PORT), (S_HOST, S_PORT))
+    portOffset = int(input("offset: "))
+    c = Client((C_HOST,C_PORT+portOffset), (S_HOST, S_PORT))
     
     def killServer():
         print("---START killServer---")
@@ -56,7 +75,8 @@ if __name__ == "__main__":
         print("---END testAuth---")
     
     print("Press <enter> to kill client.")
-    c.mainloop()
+    # c.mainloop()
+    
     # / TESTS
     # killServer()
     # testACK()
@@ -65,7 +85,10 @@ if __name__ == "__main__":
     # cert = auth.loadCertificate("certOne")
     # ec = auth.generateEcKey()
     # fin = auth.generateFinished()
-    c.queueAuth()
+    # c.queueAuth()
+    # c.connect()
+    c.startThreads()
+    c.queueDefault(c.targetAddr, b"Hello World")
     # /
     # print(auth.getDerFromPublicEc(ec.public_key()))
     input()

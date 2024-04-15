@@ -45,6 +45,9 @@ class Node:
         self.cert = auth.generateCertificate(self.rsaKey)
         self.ecKey = auth.generateEcKey()
         self.socket.bind(self.addr)
+        # threads
+        self.inboundThread = threading.Thread(target=self.listen, daemon=True)
+        self.outboundThread = threading.Thread(target=self.sendQueue, daemon=True)
         
     @property
     def sequenceId(self):
@@ -73,7 +76,7 @@ class Node:
     # sends
     def sendPacket(self, addr, p):
         # print(f"Sending {p} to {addr[1]}:{addr[0]}")
-        print(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKGREEN}{p}{bcolors.ENDC}")
+        print(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
         self.socket.sendto(p.pack(p), (addr[0],addr[1]))
         
     def sendQueue(self):
@@ -92,41 +95,54 @@ class Node:
             time.sleep(SLEEP_TIME)
         else:
             print("| sendQueue thread stopping...")
+            
+    def queuePacket(self, addr, p):
+        if p.flags[packet.Flag.RELIABLE.value]:
+            self.sent_ack_buffer[p.sequence_id] = False
+        self.queue.put((addr, p))
     
     def queueDefault(self, addr, data, flags=[0,0,0,0]):
         p = packet.Packet(self.sequenceId, flags)
         self.incrementSequenceId()
         p.data = data
-        if p.flags[packet.Flag.RELIABLE.value]:
-            self.sent_ack_buffer[p.sequence_id] = False
-        # self.sendPacket(addr, p)
-        self.queue.put((addr,p))
+        self.queuePacket(addr, p)
         
-    def queueACK(self, addr, seqId):
-        p = packet.AckPacket(self.sequenceId, seqId, self.recv_ack_buffer)
+    def queueACK(self, addr, seqId, data=None):
+        p = packet.AckPacket(self.sequenceId, seqId, self.recv_ack_buffer, data=data)
         self.incrementSequenceId()
-        # self.sendPacket(addr, p)
-        self.queue.put((addr,p))
+        self.queuePacket(addr, p)
         
-    def queueAuth(self, addr, cert, publicEc, finished=b"\x00"*32):
-        p = packet.AuthPacket(self.sequenceId, cert, publicEc, finished)
+    def queueAuth(self, addr, cert, publicEc):
+        p = packet.AuthPacket(self.sequenceId, cert, publicEc)
         self.incrementSequenceId()
-        self.queue.put((addr, p))
+        self.queuePacket(addr, p)
+        
+    def queueFinished(self, addr, seqId, sessionKey):
+        finished = Node._generateFinished(sessionKey)
+        self.queueACK(addr, seqId, data=finished)
+        
+    @staticmethod
+    def _generateFinished(sessionKey):
+        return auth.generateFinished(sessionKey, finishedLabel=b"node finished", messages=b"\x13") # TODO: give appropriate values for label and messages
     
     # receives
-    def receive(self):
+    def receivePacket(self):
         data, addr = self.socket.recvfrom(BUFFER_SIZE)
         p = packet.unpack(data)
-        print(f"{bcolors.OKCYAN}< {addr} :{bcolors.ENDC} {bcolors.OKGREEN}{p}{bcolors.ENDC}")
-        match (p.packet_type):
-            case packet.Type.DEFAULT | packet.Type.FRAG:
-                return self.receiveDefault(p, addr)
-            case packet.Type.ACK:
-                return self.receiveAck(p, addr)
-            case packet.Type.AUTH:
-                return self.receiveAuth(p, addr)
-            case _:
-                raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
+        return p, addr
+    
+    def receive(self, p, addr):
+        if p != None:
+            print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+            match (p.packet_type):
+                case packet.Type.DEFAULT | packet.Type.FRAG:
+                    return self.receiveDefault(p, addr)
+                case packet.Type.ACK:
+                    return self.receiveAck(p, addr)
+                case packet.Type.AUTH:
+                    return self.receiveAuth(p, addr)
+                case _:
+                    raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
     
     def receiveDefault(self, p, addr):
         if p.flags[packet.Flag.RELIABLE.value]:
@@ -141,29 +157,27 @@ class Node:
         self.sent_ack_buffer[p.ack_id] = True
         return (p, addr)
         
-    def receiveAuth(self, p: packet.AuthPacket, addr):
-        if self.sessionKey == None:
-            self.sessionKey = auth.generateSessionKey(self.ecKey, p.publicEc)
-            finished = auth.generateFinished(self.sessionKey, finishedLabel=b"node finished", messages=b"\x13") # TODO: give appropriate values for label and messages
-            self.queueAuth(addr, self.cert, self.ecKey.public_key(), finished)
-            if p.finished != b"\00"*32:
-                assert p.finished == finished
-                # TODO: send appropriate ACK (& wait for ACK else CRIT FAIL)
-        return (p,addr)
+    def receiveAuth(self, p, addr):
+        raise NotImplementedError(f"Node should not receive auth. A child class must overwrite.")
+        return (p, addr)
         
     def listen(self):
         print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
         while self.isRunning.is_set():
-            self.receive()
+            p, addr = self.receivePacket()
+            self.receive(p, addr)
         else:
             print("| listen thread stopping...")
     
     # misc
-    def mainloop(self):
-        self.inboundThread = threading.Thread(target=self.listen, daemon=True)
-        self.outboundThread = threading.Thread(target=self.sendQueue, daemon=True)
+    def startThreads(self):
         self.inboundThread.start()
         self.outboundThread.start()
+                   
+    @staticmethod
+    def validateCert(cert):
+        # TODO: valid cert check
+        return True
             
     
 if __name__ == "__main__":

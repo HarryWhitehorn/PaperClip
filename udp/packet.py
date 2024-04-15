@@ -83,10 +83,10 @@ class Packet:
     def pack(cls, p):
         header = cls._packHeader(p)
         if p.data != None:
-            if type(p.data) == str:
-                header.append(bytes(p.data,"UTF-8"))
-            elif type(p.data) == bytes:
+            if type(p.data) == bytes:
                 header.append(p.data)
+            # elif type(p.data) == str:
+            #     header.append(bytes(p.data,"UTF-8"))
             else:
                 raise TypeError(f"Unknown data type. Cannot encode {p.data} of type {type(p.data)}.")
         return b"".join(header)
@@ -104,7 +104,7 @@ class Packet:
     @classmethod
     def unpack(cls, rawP):
         header = cls._unpackHeader(rawP)
-        data = rawP[3:].decode()
+        data = rawP[3:]
         return cls(*header, data)
     
 class FragPacket(Packet):
@@ -168,8 +168,8 @@ class AckPacket(Packet):
     _ack_id = 0
     _ack_bits = [None for _ in range(ACK_BITS_SIZE)]
     
-    def __init__(self, seqId, ackId, ackBits=[None for _ in range(ACK_BITS_SIZE)], flags=[0, 0, 0, 0]):
-        super().__init__(seqId, flags, Type.ACK)
+    def __init__(self, seqId, ackId, ackBits=[None for _ in range(ACK_BITS_SIZE)], flags=[0, 0, 0, 0], data=None):
+        super().__init__(seqId, flags, Type.ACK, data=data)
         self.ack_id = ackId
         self.ack_bits = ackBits
         
@@ -207,14 +207,15 @@ class AckPacket(Packet):
     @classmethod
     def unpack(cls, rawP):
         header = cls._unpackHeader(rawP)
-        return cls(*header)
+        data = rawP[7:]
+        return cls(*header, data=data)
     
 class AuthPacket(Packet):
-    def __init__(self, seqId, cert, publicEc, finished=b"\x00"*32, flags=[0, 0, 0, 0]):
+    def __init__(self, seqId, cert, publicEc, flags=[1, 0, 0, 0]):
         super().__init__(seqId, flags, Type.AUTH)
         self.cert = cert
         self.publicEc = publicEc
-        self.finished = finished
+        # self.finished = finished
         
     @classmethod
     def _packHeader(cls, p):
@@ -225,7 +226,7 @@ class AuthPacket(Packet):
         header.append(struct.pack("!B", len(ecBytes)))
         header.append(certBytes)
         header.append(ecBytes)
-        header.append(p.finished)
+        # header.append(p.finished)
         return header
         
     @classmethod
@@ -238,9 +239,9 @@ class AuthPacket(Packet):
         OFFSET += certSize
         ecBytes = rawP[OFFSET:ecSize+OFFSET]
         publicEc = auth.getPublicEcFromDer(ecBytes)
-        OFFSET += ecSize
-        finished = rawP[OFFSET:OFFSET+32]
-        return header[0], cert, publicEc, finished, header[1] 
+        # OFFSET += ecSize
+        # finished = rawP[OFFSET:OFFSET+32]
+        return header[0], cert, publicEc, header[1] 
     
     @classmethod
     def unpack(cls, rawP):
