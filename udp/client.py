@@ -17,11 +17,11 @@ class Client(Node):
     def targetPort(self):
         return self.targetAddr[1] if self.targetAddr != None else None
     
-    def queueDefault(self, addr, data, flags=[0,0,0,0]):
-        return super().queueDefault(self.targetAddr, data, flags)
+    def queueDefault(self, addr, data=None):
+        return super().queueDefault(self.targetAddr, data)
     
-    def queueACK(self, addr, seqId, data=None):
-        return super().queueACK(self.targetAddr, seqId, data)
+    def queueACK(self, addr, ackId, data=None):
+        return super().queueACK(self.targetAddr, ackId, data)
     
     # def queueAuth(self, addr,):
     #     return super().queueAuth(self.targetAddr, self.cert, self.ecKey.public_key())
@@ -36,9 +36,9 @@ class Client(Node):
             p, addr = self.receivePacket()
             if p.packet_type == packet.Type.AUTH:
                 authPacket = p
-                self.sessionKey = auth.generateSessionKey(self.ecKey, p.publicEc)
-                if not Node.validateCert(p.cert):
-                    raise ValueError(f"Invalid peer cert {p.cert}")
+                self.sessionKey = auth.generateSessionKey(self.ecKey, p.public_key)
+                if not Node.validateCert(p.certificate):
+                    raise ValueError(f"Invalid peer cert {p.certificate}")
                 self.queueFinished(self.targetAddr, p.sequence_id, self.sessionKey)
             elif p.packet_type == packet.Type.ACK:
                 ackPacket = p
@@ -55,7 +55,7 @@ class Client(Node):
 if __name__ == "__main__":
     from node import S_HOST, S_PORT, C_HOST, C_PORT
     from time import sleep
-    portOffset = int(input("offset: "))
+    portOffset = 0#int(input("offset: "))
     c = Client((C_HOST,C_PORT+portOffset), (S_HOST, S_PORT))
     
     def killServer():
@@ -86,8 +86,8 @@ if __name__ == "__main__":
     # ec = auth.generateEcKey()
     # fin = auth.generateFinished()
     # c.queueAuth()
-    # c.connect()
-    c.startThreads()
+    c.connect()
+    # c.startThreads()
     c.queueDefault(c.targetAddr, b"Hello World")
     # /
     # print(auth.getDerFromPublicEc(ec.public_key()))

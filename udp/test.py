@@ -1,24 +1,23 @@
-from node import *
+from node import Node, S_HOST, S_PORT, C_HOST, C_PORT
+from packet import *
 import auth
+import threading
+from random import randint
 
-def nodeSequenceIdLock():
-    n = Node(C_HOST, C_PORT)
-    l = threading.Lock()
-    
-    def test():
-        for _ in range(100000):
-            n.incrementSequenceId()
-            
-    threads = [threading.Thread(target=test) for _ in range(10)]
-    
-    for t in threads:
-        t.start()
-        
-    for t in threads:
-        t.join()
-    
-    assert n.sequenceId == 16960, n.sequenceId
-    
+## node
+# def nodeSequenceIdLock():
+#     n = Node(C_HOST, C_PORT)
+#     def test():
+#         for _ in range(100000):
+#             n.incrementSequenceId()
+#     threads = [threading.Thread(target=test) for _ in range(10)]
+#     for t in threads:
+#         t.start()
+#     for t in threads:
+#         t.join()
+#     assert n.sequenceId == 16960, n.sequenceId
+
+## auth
 def sessionKey():
     localKey = auth.generateEcKey()
     peerKey = auth.generateEcKey()
@@ -39,10 +38,125 @@ def encryptDecrypt(inputText=b"Hello World"):
     #
     assert inputText == outputText, (inputText, outputText)
 
+## packet
+def genRandAttr(t=Type.DEFAULT):
+    v, pT, sId = randint(0,1), t, randint(0,2**SEQUENCE_ID_SIZE-1)
+    f = [0 for _ in range(FLAGS_SIZE)]
+    if randint(0,1):
+        f[Flag.FRAG.value] = 1
+        fId, fNum = randint(0,2**FRAGMENT_ID_SIZE-1), randint(0,2**FRAGMENT_NUM_SIZE-1)
+    else:
+        fId, fNum = None, None
+    if randint(0,1):
+        f[Flag.ENCRYPTED.value] = 1
+        iv = randint(0, 2**INIT_VECTOR_SIZE-1)
+    else:
+        iv = None
+    if randint(0,1):
+        f[Flag.CHECKSUM.value] = 1
+        c = randint(0,2**CHECKSUM_SIZE-1)
+    else:
+        c = None
+    h = (v, pT, f, sId, fId, fNum, iv, c)
+    return h
+
+def testAuth():
+    pK, c = auth.generateEcKey().public_key(), auth.generateCertificate(auth.generateRsaKey())
+    pKS, cS = AuthPacket.getPublicKeyBytesSize(pK), AuthPacket.getCertificateByteSize(c)
+    h = (*genRandAttr(Type.AUTH), pKS, pK, cS, c)
+    # static test
+    eH = AuthPacket.encodeHeader(*h)
+    dH = AuthPacket.decodeHeader(eH)[:-1]
+    assert h == dH, (h, eH, dH)
+    # class tests
+    p = AuthPacket(*h)
+    eP = p.pack(p)
+    dP = p.unpack(eP)
+    assert p == dP, (p, eP, dP)
+
+def testAck():
+    # header
+    aId, aB = randint(0, 2**ACK_ID_SIZE-1), [randint(0,1) for _ in range(ACK_BITS_SIZE)]
+    h = (*genRandAttr(Type.ACK), aId, aB)
+    # static test
+    eH = AckPacket.encodeHeader(*h)
+    dH = AckPacket.decodeHeader(eH)[:-1]
+    assert h == dH, (h, eH, dH)
+    # class tests
+    p = AckPacket(*h)
+    eP = p.pack(p)
+    dP = p.unpack(eP)
+    assert p == dP, (p, eP, dP)
+    
+def testAckBits():
+    aId, aB = randint(0, 2**ACK_ID_SIZE-1), [randint(0,1) for _ in range(ACK_BITS_SIZE)]
+    eAId, eAB = AckPacket.encodeAckId(aId), AckPacket.encodeAckBits(aB)
+    dAId, dAB = AckPacket.decodeAckId(eAId), AckPacket.decodeAckBits(eAB)
+    assert (aId, aB) == (dAId, dAB),  ((aId, aB), (eAId, eAB), (dAId, dAB))
+
+def testDefault():
+    # header
+    h = genRandAttr()
+    # static test
+    eH = Packet.encodeHeader(*h)
+    dH = Packet.decodeHeader(eH)[:-1]
+    assert h == dH, (h, eH, dH)
+    # class tests
+    p = Packet(*h)
+    eP = p.pack(p)
+    dP = p.unpack(eP)
+    assert p == dP, (p, eP, dP)
+    
+def testChecksum():
+    # checksum
+    c = randint(0,2**CHECKSUM_SIZE-1)
+    eC = Packet.encodeChecksum(c)
+    dC = Packet.decodeChecksum(eC)
+    assert c == dC, (c, eC, dC)
+    
+def testInitVector():
+    # init vector
+    iv = randint(0, 2**INIT_VECTOR_SIZE-1)
+    eIv = Packet.encodeInitVector(iv)
+    dIv = Packet.decodeInitVector(eIv)
+    assert iv == dIv, (iv, eIv, dIv)
+    
+def testFrag():
+    # frag
+    fId, fN  = randint(0,2**FRAGMENT_ID_SIZE-1), randint(0,2**FRAGMENT_NUM_SIZE-1)
+    eFId, eFN  = Packet.encodeFragmentId(fId), Packet.encodeFragmentNumber(fN)
+    dFId, dFN = Packet.decodeFragmentId(eFId), Packet.decodeFragmentNumber(eFN)
+    assert (fId, fN) == (dFId, dFN), ((fId, fN), (eFId+eFN), (dFId, dFN))
+    
+def testFlags():
+    # flags
+    f = [randint(0,1) for _ in range(FLAGS_SIZE)]
+    eF = Packet.encodeFlags(f)
+    dF = Packet.decodeFlags(eF)
+    assert f == dF, (f, eF, dF)
+    
+def testVersionType():
+    # version type
+    v, pT = randint(0,2**VERSION_SIZE), Type(randint(0,max(t.value for t in Type)))
+    eVt = Packet.encodeVersionType(v,pT)
+    dVt = Packet.decodeVersionType(eVt)
+    assert (v, pT) == dVt, ((v, pT), eVt, dVt)
 if __name__ == "__main__":
-    print(f"{'-'*5}START test(s){'-'*5}")
+    print(f"\n{'-'*5}START test(s){'-'*5}")
+    ## node
     # nodeSequenceIdLock()
+    ## auth
     sessionKey()
-    # encryptDecrypt()
-    print(f"{'-'*5}END test(s){'-'*5}")
+    encryptDecrypt()
+    ## packet
+    testVersionType()
+    testFlags()
+    testFrag()
+    testInitVector()
+    testChecksum()
+    testDefault()
+    testAckBits()
+    testAck()
+    testAuth()
+    print(f"\n{'-'*5}END test(s){'-'*5}")
     

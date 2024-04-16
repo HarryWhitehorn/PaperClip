@@ -3,8 +3,6 @@ import auth
 import packet
 # from . import ADDR,PORT
 
-MAX_CLIENTS = 0
-
 class Server(Node):
     clients = {}
     
@@ -21,16 +19,18 @@ class Server(Node):
         if p.data != None and not self.getHandshake(addr): # ack has payload & client has not completed handshake => validate handshake
             if not self.clients[addr].validateHandshake(p.data):
                 raise ValueError(f"Local finished value does not match peer finished value {p.data}")
-            
+            else:
+                print(f"{bcolors.OKGREEN}# Handshake with {self.addr} successful.{bcolors.ENDC}")
+                
     def receiveAuth(self, p, addr):
-        sessionKey = auth.generateSessionKey(self.ecKey, p.publicEc)
+        sessionKey = auth.generateSessionKey(self.ecKey, p.public_key)
         if not addr in self.clients or self.getSessionKey(addr) != sessionKey: # new client or new client sessionKey
-            self.clients[addr] = ClientStatus(addr, sessionKey, p.cert)
+            self.clients[addr] = ClientStatus(addr, sessionKey, p.certificate)
             self.queueAuth(addr, self.cert, self.ecKey.public_key())
-            if not Node.validateCert(p.cert):
-                raise ValueError(f"Invalid peer cert {p.cert}")
+            if not Node.validateCert(p.certificate):
+                raise ValueError(f"Invalid peer cert {p.certificate}")
             self.queueFinished(addr, p.sequence_id, self.getSessionKey(addr))
-        return (p,addr)
+        return (p, addr)
             
     # def _receiveAuth(self, p, addr):
     #     if self.sessionKey == None:
@@ -45,7 +45,7 @@ class Server(Node):
         return self.clients[clientAddr].sessionKey
     
     def getHandshake(self, clientAddr):
-        return self.clients[clientAddr]
+        return self.clients[clientAddr].handshake
             
     # def receiveAuth(self, p, addr):
         # return super().receiveAuth(p, addr)
@@ -63,12 +63,17 @@ class Server(Node):
             else:
                 if p.packet_type == packet.Type.AUTH: # client not exists => drop all non-AUTH packets
                     self.receive(p, addr)
+                else:
+                    print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
+
         else:
             print("| listen thread stopping...")
         
 
 
 class ClientStatus:
+    # _handshake = False
+    
     def __init__(self, addr, sessionKey:bytes|None=None, cert=None, handshake=False, heartbeat=None):
         self.addr = addr
         self.sessionKey = sessionKey
@@ -84,6 +89,16 @@ class ClientStatus:
     def port(self):
         return self.addr[1]
     
+    # @property
+    # def handshake(self):
+    #     return self._handshake
+    
+    # @handshake.setter
+    # def handshake(self, v:bool):
+    #     self._handshake = v
+    #     if self._handshake:
+    #         print(f"{bcolors.OKGREEN}# Handshake with {self.addr} successful.{bcolors.ENDC}")
+    
     def validateHandshake(self, finished):
         self.handshake = Node._generateFinished(self.sessionKey) == finished
         return self.handshake
@@ -93,7 +108,7 @@ if __name__ == "__main__":
     from node import S_HOST, S_PORT
     from time import sleep
     s = Server((S_HOST,S_PORT))
-    print("Press <enter> to kill client.")
+    print("\n"*4+"Press <enter> to kill client.")
     s.startThreads()
     input()
     s.isRunning.clear()

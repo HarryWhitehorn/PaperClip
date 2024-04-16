@@ -43,3 +43,11 @@
         - `handshake` success
         - TODO: heartbeat to kill dead clients. Check session key?
     - `Server` will not allow for a `client` to communicate without completing handshake
+    - Created [packet spec](packet_spec.pdf) `ver 0`
+
+## Tue 16
+
+- Complete `packet` refactor to meet new specs.
+    - `pack` and `unpack` still yield the same value (`packet to bytes` and `bytes to packet`)
+    - `node` has been adjusted to still work. (Mostly using keyword for packet creation).
+    - A few test to check new `packet` structure

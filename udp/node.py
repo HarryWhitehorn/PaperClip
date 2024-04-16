@@ -101,19 +101,18 @@ class Node:
             self.sent_ack_buffer[p.sequence_id] = False
         self.queue.put((addr, p))
     
-    def queueDefault(self, addr, data, flags=[0,0,0,0]):
-        p = packet.Packet(self.sequenceId, flags)
+    def queueDefault(self, addr, data=None):
+        p = packet.Packet(sequence_id=self.sequenceId, data=data)
         self.incrementSequenceId()
-        p.data = data
         self.queuePacket(addr, p)
         
-    def queueACK(self, addr, seqId, data=None):
-        p = packet.AckPacket(self.sequenceId, seqId, self.recv_ack_buffer, data=data)
+    def queueACK(self, addr, ackId, data=None):
+        p = packet.AckPacket(sequence_id=self.sequenceId, ack_id=ackId, ack_bits=self.recv_ack_buffer, data=data)
         self.incrementSequenceId()
         self.queuePacket(addr, p)
         
     def queueAuth(self, addr, cert, publicEc):
-        p = packet.AuthPacket(self.sequenceId, cert, publicEc)
+        p = packet.AuthPacket(sequence_id=self.sequenceId, certificate=cert, public_key=publicEc)
         self.incrementSequenceId()
         self.queuePacket(addr, p)
         
@@ -135,7 +134,7 @@ class Node:
         if p != None:
             print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
             match (p.packet_type):
-                case packet.Type.DEFAULT | packet.Type.FRAG:
+                case packet.Type.DEFAULT:
                     return self.receiveDefault(p, addr)
                 case packet.Type.ACK:
                     return self.receiveAck(p, addr)
@@ -148,9 +147,6 @@ class Node:
         if p.flags[packet.Flag.RELIABLE.value]:
             self.recv_ack_buffer[p.sequence_id] = True
             self.queueACK(addr, p.sequence_id)
-        return (p,addr)
-    
-    def _receiveFrag(self, p, addr):
         return (p,addr)
     
     def receiveAck(self, p, addr):

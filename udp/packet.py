@@ -1,281 +1,384 @@
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+from cryptography.x509 import Certificate
 from enum import Enum
 import struct
 import auth
 
-PACKET_TYPE_SIZE = 1 # 1 bits
-FLAGS_SIZE = 4 # 4 bits
-SEQUENCE_ID_SIZE = 16 # 16 bits
-FRAGMENT_ID_SIZE = 8 # 8 bits
-FRAGMENT_NUM_SIZE = 8 # 8 bits
-ACK_BITS_SIZE = SEQUENCE_ID_SIZE # 16 bits
+VERSION = 0
+# SIZE in Bits
+VERSION_SIZE = 4
+PACKET_TYPE_SIZE = 4
+FLAGS_SIZE = 8
+SEQUENCE_ID_SIZE = 16
+FRAGMENT_ID_SIZE = 8 
+FRAGMENT_NUM_SIZE = 8
+INIT_VECTOR_SIZE = 16
+CHECKSUM_SIZE = 16
+ACK_ID_SIZE = SEQUENCE_ID_SIZE # 16
+ACK_BITS_SIZE = SEQUENCE_ID_SIZE # 16
 
-class Flag(Enum):
-    RELIABLE = 0
-    CHECKSUM = 1
-    COMPRESSED = 2
-    ENCRYPTED = 3
-    
 class Type(Enum):
     DEFAULT = 0
+    ACK = 1
+    AUTH = 2
+    
+class Flag(Enum):
+    RELIABLE = 0
     FRAG = 1
-    ACK = 2
-    AUTH = 3
-
+    COMPRESSED = 2
+    ENCRYPTED = 3
+    CHECKSUM = 4
+     
 class Packet:
-    _packet_type = Type.DEFAULT
-    _flags = [0,0,0,0]  #f: [reliable, checksum, compressed, encrypted]
-    _sequence_id = 0 
-
-    def __init__(self, seqId, flags=[0,0,0,0], packetType=Type.DEFAULT, data=None):
-        self.packet_type = packetType
+    version:int = VERSION
+    packet_type:Type = Type.DEFAULT
+    flags:list[int] = [0 for _ in range(FLAGS_SIZE)]
+    sequence_id:int = 0
+    fragment_id:int|None = None
+    fragment_number:int|None = None
+    init_vector:int|None = None
+    checksum:int|None = None
+    data:bytes|None = None
+    
+    def __init__(self, version:int=VERSION, packet_type:Type=Type.DEFAULT, flags:list[int]=[0 for _ in range(FLAGS_SIZE)], sequence_id:int=0, fragment_id:int|None=None, fragment_number:int|None=None, init_vector:int|None=None,checksum:int|None=None,data:bytes|None=None) -> None:
+        self.version = version
+        self.packet_type = packet_type
         self.flags = flags
-        self.sequence_id = seqId
+        self.sequence_id = sequence_id
+        self.fragment_id = fragment_id
+        self.fragment_number = fragment_number
+        self.init_vector = init_vector
+        self.checksum = checksum
         self.data = data
         
+    # dunder
     def __str__(self):
-        return str(self.pack(self))
-    
-    def __repr__(self):
-        return repr(self.pack(self))
-    
-    @property
-    def packet_type(self):
-        return self._packet_type
-    
-    @packet_type.setter
-    def packet_type(self, packetType):
-        if isinstance(packetType, Type):
-            self._packet_type = packetType
+        s = self.pack(self)
+        if len(s) > 16:
+            return f"{s[:15]}...{s[-1:]}"
         else:
-            raise ValueError(f"packet_type must be in bytes or bytearray with len == {PACKET_TYPE_SIZE}.")
+            return str(s)
         
-    @property
-    def sequence_id(self):
-        return self._sequence_id
-    
-    @sequence_id.setter
-    def sequence_id(self, seqId):
-        if seqId < 2**SEQUENCE_ID_SIZE:
-            self._sequence_id = seqId
+    def __eq__(self, other) -> bool:
+        if isinstance(other, self.__class__):
+            return vars(self) == vars(other)
         else:
-            raise ValueError(f"sequence_id must be in bytes or bytearray with len == {SEQUENCE_ID_SIZE}.")
-        
-    @property
-    def flags(self):
-        return self._flags
+            return False    
     
-    @flags.setter
-    def flags(self, fs):
-        if len(fs) == FLAGS_SIZE:
-            self._flags = fs
-        else:
-            raise ValueError(f"flags must be bool[] with len() == {FLAGS_SIZE}.")
-        
-    @classmethod
-    def _packHeader(cls, p):
-        header = []
-        packedTypeFlags = (16 * p.packet_type.value) | int(''.join(map(str,p.flags)),2)
-        header.append(struct.pack("!B",packedTypeFlags))
-        header.append(struct.pack("!H",p.sequence_id))
-        return header
+    # encode / decode
+    @staticmethod    
+    def _encodeVersion(version:int) -> int:
+        return version
     
-    @classmethod
-    def pack(cls, p):
-        header = cls._packHeader(p)
-        if p.data != None:
-            if type(p.data) == bytes:
-                header.append(p.data)
-            # elif type(p.data) == str:
-            #     header.append(bytes(p.data,"UTF-8"))
-            else:
-                raise TypeError(f"Unknown data type. Cannot encode {p.data} of type {type(p.data)}.")
-        return b"".join(header)
+    @staticmethod
+    def _decodeVersion(version:int) -> int:
+        return version
     
-    @classmethod
-    def _unpackHeader(cls, rawP):
-        packedTypeFlags = rawP[0]
-        packet_type = Type(packedTypeFlags >> 4)
-        flags = (packedTypeFlags & 15)
-        flags = [(flags>>i)&1 for i in range(4)]
+    @staticmethod
+    def _encodeType(packet_type:Type) -> int:
+        return packet_type.value
+    
+    @staticmethod
+    def _decodeType(packet_type:int) -> Type:
+        return Type(packet_type)
+    
+    @staticmethod
+    def encodeVersionType(version:int, packet_type:Type) -> bytes:
+        return struct.pack("!B",(Packet._encodeVersion(version)*16)|Packet._encodeType(packet_type))
+    
+    @staticmethod
+    def decodeVersionType(versionType:bytes) -> tuple[int,Type]:
+        versionType = struct.unpack("!B", versionType)[0]
+        version = Packet._decodeVersion(versionType >> 4)
+        packet_type = Packet._decodeType(versionType & 15)
+        return version, packet_type
+    
+    @staticmethod
+    def encodeFlags(flags:list[int]) -> bytes:
+        return struct.pack("!B",int("".join(map(str,flags)),2))
+    
+    @staticmethod
+    def decodeFlags(flags:bytes) -> list[int]:
+        flags = struct.unpack("!B",flags)[0]
+        flags = [(flags>>i)&1 for i in range(FLAGS_SIZE)]
         flags.reverse()
-        sequence_id = struct.unpack("!H",rawP[1:3])[0]
-        return sequence_id, flags, packet_type
+        return flags
     
-    @classmethod
-    def unpack(cls, rawP):
-        header = cls._unpackHeader(rawP)
-        data = rawP[3:]
-        return cls(*header, data)
+    @staticmethod
+    def encodeSequenceId(sequence_id:int) -> bytes:
+        return struct.pack("!I",sequence_id)
     
-class FragPacket(Packet):
-    _packet_type = Type.FRAG
-    _fragment_id = None 
-    _fragment_num = None
+    @staticmethod
+    def decodeSequenceId(sequence_id:bytes) -> int:
+        return struct.unpack("!I",sequence_id)[0]
     
-    def __init__(self, seqId, flags=[0, 0, 0, 0], fragId=None, fragNum=None, data=None):
-        super().__init__(seqId, flags, Type.FRAG, data)
-        self.fragment_id = fragId
-        self.fragment_num = fragNum
+    @staticmethod
+    def encodeFragmentId(fragment_id:int) -> bytes:
+        return struct.pack("!B", fragment_id)
     
-    @property
-    def fragment_id(self):
-        return self._fragment_id
+    @staticmethod
+    def decodeFragmentId(fragment_id:bytes) -> int:
+        return struct.unpack("!B", fragment_id)[0]
     
-    @fragment_id.setter
-    def fragment_id(self, fragId):
-        if fragId != None:
-            if fragId < 2**FRAGMENT_ID_SIZE:
-                self._fragment_id = fragId
-            else:
-                raise ValueError(f"fragment_id must be int < {2**FRAGMENT_ID_SIZE}.")
+    @staticmethod
+    def encodeFragmentNumber(fragment_number:int) -> bytes:
+        return struct.pack("!B", fragment_number)
+    
+    @staticmethod
+    def decodeFragmentNumber(fragment_number:bytes) -> int:
+        return struct.unpack("!B", fragment_number)[0]
+    
+    @staticmethod
+    def encodeInitVector(init_vector:int) -> bytes:
+        return struct.pack("!I", init_vector)
+    
+    @staticmethod
+    def decodeInitVector(init_vector: bytes) -> int:
+        return struct.unpack("!I", init_vector)[0]
+    
+    @staticmethod
+    def encodeChecksum(checksum:int) -> bytes:
+        return struct.pack("!I", checksum)
+    
+    @staticmethod
+    def decodeChecksum(checksum:bytes) -> int:
+        return struct.unpack("!I", checksum)[0]
+    
+    @staticmethod
+    def encodeHeader(version:int, packet_type:Type,  flags:list[int], sequence_id:int, fragment_id:int|None=None, fragment_number:int|None=None, init_vector:int|None=None, checksum:int|None=None) -> bytes:
+        versionType = Packet.encodeVersionType(version, packet_type)
+        flags = Packet.encodeFlags(flags)
+        sequence_id = Packet.encodeSequenceId(sequence_id)
+        fragment_id = Packet.encodeFragmentId(fragment_id) if fragment_id != None else b""
+        fragment_number = Packet.encodeFragmentNumber(fragment_number) if fragment_number != None else b""
+        init_vector = Packet.encodeInitVector(init_vector) if init_vector != None else b""
+        checksum = Packet.encodeChecksum(checksum) if checksum != None else b""
+        return versionType + flags + sequence_id + fragment_id + fragment_number + init_vector + checksum
+    
+    @staticmethod
+    def decodeHeader(header:bytes) -> tuple[int, Type, list[int], int, int|None, int|None, int|None, int|None, int]:
+        version, packet_type = Packet.decodeVersionType(header[0:1])
+        flags = Packet.decodeFlags(header[1:2])
+        sequence_id = Packet.decodeSequenceId(header[2:6])
+        offset = 6
+        if flags[Flag.FRAG.value]:
+            fragment_id = Packet.decodeFragmentId(header[offset:offset+1])
+            fragment_number = Packet.decodeFragmentNumber(header[offset+1:offset+2])
+            offset += 2
         else:
-            self._fragment_id = None
-        
-    @property
-    def fragment_num(self):
-        return self._fragment_num
-    
-    @fragment_num.setter
-    def fragment_num(self, fragNum):
-        if fragNum != None:
-            if fragNum < 2**FRAGMENT_NUM_SIZE:
-                self._fragment_num = fragNum
-            else:
-                raise ValueError(f"fragment_num must be int < {2**FRAGMENT_NUM_SIZE}.")
+            fragment_id = None
+            fragment_number = None
+        if flags[Flag.ENCRYPTED.value]:
+            init_vector = Packet.decodeInitVector(header[offset:offset+4])
+            offset += 4
         else:
-            self._fragment_num = None
-            
+            init_vector = None
+        if flags[Flag.CHECKSUM.value]:
+            checksum = Packet.decodeChecksum(header[offset:offset+4])
+            offset += 4
+        else:
+            checksum = None
+        return version, packet_type, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum, offset
+    
+    # pack / unpack
     @classmethod
-    def _packHeader(cls, p):
-        header = super()._packHeader(p)
-        header.append(struct.pack("!B",p.fragment_id))
-        header.append(struct.pack("!B",p.fragment_num))
+    def _packHeader(cls, p) -> bytes:
+        header = cls.encodeHeader(p.version, p.packet_type, p.flags, p.sequence_id, p.fragment_id, p.fragment_number, p.init_vector, p.checksum)
         return header
     
     @classmethod
-    def _unpackHeader(cls, rawP):
-        header = super()._unpackHeader(rawP)
-        fragment_id, fragment_num = struct.unpack("!BB",rawP[3:5])
-        return *header[:2], fragment_id, fragment_num
+    def pack(cls, p) -> bytes:
+        header = cls._packHeader(p)
+        data = p.data if p.data != None else b""
+        return header + data
     
     @classmethod
-    def unpack(cls, rawP):
-        header = cls._unpackHeader(rawP)
-        data = rawP[5:].decode()
-        return cls(*header, data)
-
+    def _unpackHeader(cls, bytesP:bytes):
+        *header, offset = cls.decodeHeader(bytesP)
+        return *header, offset
+    
+    @classmethod
+    def unpack(cls, bytesP:bytes):
+        *header, offset = cls._unpackHeader(bytesP)
+        data = bytesP[offset:] if offset < len(bytesP) else None
+        return cls(*header, data=data)
+        
 class AckPacket(Packet):
-    _ack_id = 0
-    _ack_bits = [None for _ in range(ACK_BITS_SIZE)]
+    ack_id:int = 0
+    ack_bits:list[int|None] = [None for _ in range(ACK_BITS_SIZE)]
     
-    def __init__(self, seqId, ackId, ackBits=[None for _ in range(ACK_BITS_SIZE)], flags=[0, 0, 0, 0], data=None):
-        super().__init__(seqId, flags, Type.ACK, data=data)
-        self.ack_id = ackId
-        self.ack_bits = ackBits
+    def __init__(self, version: int = VERSION, type:Type.ACK=Type.ACK, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = 0, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, ack_id:int=0, ack_bits:list[int|None]=[None for _ in range(ACK_BITS_SIZE)], data: bytes | None = None) -> None:
+        super().__init__(version, Type.ACK, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum, data)
+        self.ack_id = ack_id
+        self.ack_bits = ack_bits
         
-    @property
-    def ack_id(self):
-        return self._ack_id
+    # encode / decode
+    @staticmethod
+    def encodeAckId(ack_id:int) -> bytes:
+        return struct.pack("!I", ack_id)
     
-    @ack_id.setter
-    def ack_id(self, v):
-        self._ack_id = v
-        
-    @property
-    def ack_bits(self):
-        return self._ack_bits
+    @staticmethod
+    def decodeAckId(ack_id:bytes) -> int:
+        return struct.unpack("!I", ack_id)[0]
     
-    @ack_bits.setter
-    def ack_bits(self, v):
-        self._ack_bits = v
-        
-    @classmethod
-    def _packHeader(cls, p):
-        header = super()._packHeader(p)
-        header.append(struct.pack("!H",p.ack_id))
-        header.append(struct.pack("!H",int("".join(map(str,[int(bit) if bit!=None else 0 for bit in p.ack_bits])),2)))
-        return header
+    @staticmethod
+    def encodeAckBits(ack_bits:list[int]) -> bytes:
+        return struct.pack("!I",int("".join(map(str,(int(bit) if bit!= None else 0 for bit in ack_bits))),2))
     
-    @classmethod
-    def _unpackHeader(cls, rawP):
-        header = super()._unpackHeader(rawP)
-        ack_id, ack_bits = struct.unpack("!HH",rawP[3:7])
+    @staticmethod
+    def decodeAckBits(ack_bits:bytes) -> list[int]:
+        ack_bits = struct.unpack("!I",ack_bits)[0]
         ack_bits = [(ack_bits>>i)&1 for i in range(ACK_BITS_SIZE)]
         ack_bits.reverse()
-        return header[0], ack_id, ack_bits, header[1]
+        return ack_bits
     
-    @classmethod
-    def unpack(cls, rawP):
-        header = cls._unpackHeader(rawP)
-        data = rawP[7:]
-        return cls(*header, data=data)
+    @staticmethod
+    def encodeHeader(version: int, packet_type: Type, flags: list[int], sequence_id: int, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, ack_id:int=0, ack_bits:list[int|None]=[None for _ in range(ACK_BITS_SIZE)]) -> bytes:
+        header = Packet.encodeHeader(version, packet_type, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum)
+        ack_id = AckPacket.encodeAckId(ack_id)
+        ack_bits = AckPacket.encodeAckBits(ack_bits)
+        return header + ack_id + ack_bits
     
-class AuthPacket(Packet):
-    def __init__(self, seqId, cert, publicEc, flags=[1, 0, 0, 0]):
-        super().__init__(seqId, flags, Type.AUTH)
-        self.cert = cert
-        self.publicEc = publicEc
-        # self.finished = finished
-        
+    @staticmethod
+    def decodeHeader(header: bytes) -> tuple[int, Type, list[int], int, int | None, int | None, int | None, int | None, int, list[int|None], int]:
+        *h, offset = Packet.decodeHeader(header)
+        ack_id = AckPacket.decodeAckId(header[offset:offset+4])
+        offset += 4
+        ack_bits = AckPacket.decodeAckBits(header[offset:offset+4])
+        offset += 4
+        return *h, ack_id, ack_bits, offset
+    
+    # pack / unpack
     @classmethod
-    def _packHeader(cls, p):
-        header = super()._packHeader(p)
-        certBytes = p.cert.public_bytes(auth.serialization.Encoding.DER)
-        ecBytes = auth.getDerFromPublicEc(p.publicEc)
-        header.append(struct.pack("!H", len(certBytes)))
-        header.append(struct.pack("!B", len(ecBytes)))
-        header.append(certBytes)
-        header.append(ecBytes)
-        # header.append(p.finished)
+    def _packHeader(cls, p) -> bytes:
+        header = cls.encodeHeader(p.version, p.packet_type, p.flags, p.sequence_id, p.fragment_id, p.fragment_number, p.init_vector, p.checksum, p.ack_id, p.ack_bits)
         return header
-        
-    @classmethod
-    def _unpackHeader(cls, rawP):
-        header = super()._unpackHeader(rawP)
-        OFFSET = 6
-        certSize, ecSize = struct.unpack("!HB", rawP[3:OFFSET])
-        certBytes = rawP[OFFSET:certSize+OFFSET]
-        cert = auth.x509.load_der_x509_certificate(certBytes)
-        OFFSET += certSize
-        ecBytes = rawP[OFFSET:ecSize+OFFSET]
-        publicEc = auth.getPublicEcFromDer(ecBytes)
-        # OFFSET += ecSize
-        # finished = rawP[OFFSET:OFFSET+32]
-        return header[0], cert, publicEc, header[1] 
-    
-    @classmethod
-    def unpack(cls, rawP):
-        header = cls._unpackHeader(rawP)
-        return cls(*header)
-    
 
+class AuthPacket(Packet):
+    _public_key_size:int|None = None
+    public_key:EllipticCurvePublicKey|None = None
+    _certificate_size:int|None = None
+    certificate:Certificate|None = None
+    
+    def __init__(self, version: int = VERSION, packet_type: Type = Type.AUTH, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = 0, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, public_key_size:int|None=None, public_key:EllipticCurvePublicKey|None=None, certificate_size:int|None=None, certificate:Certificate|None=None) -> None:
+        super().__init__(version, Type.AUTH, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum, data=None)
+        self.public_key_size = public_key_size
+        self.public_key = public_key
+        self.certificate_size = certificate_size
+        self.certificate = certificate
+    
+    # setter / getter
+    @property
+    def public_key_size(self) -> int|None:
+        if self._public_key_size == None:
+            self.public_key_size = AuthPacket.getPublicKeyBytesSize(self.public_key) if self.public_key != None else None
+        return self._public_key_size
+    
+    @public_key_size.setter
+    def public_key_size(self, v:int|None) -> None:
+        self._public_key_size = v
+        
+    @staticmethod
+    def getPublicKeyBytesSize(publicKey:EllipticCurvePublicKey) -> int:
+        return len(auth.getDerFromPublicEc(publicKey))
+        
+    @property
+    def certificate_size(self) -> int|None:
+        if self._certificate_size == None:
+            self.certificate_size = self.getCertificateByteSize(self.certificate) if self.certificate != None else None
+        return self._certificate_size
+
+    
+    @certificate_size.setter
+    def certificate_size(self, v:int|None) -> None:
+        self._certificate_size = v
+    
+    @staticmethod
+    def getCertificateByteSize(certificate:Certificate) -> int:
+        return len(auth.getDerFromCertificate(certificate))
+    
+    # encode / decode
+    @staticmethod
+    def encodePublicKeySize(public_key_size:int) -> bytes:
+        return struct.pack("!B", public_key_size)
+    
+    @staticmethod
+    def decodePublicKeySize(public_key_size:bytes) -> int:
+        return struct.unpack("!B", public_key_size)[0]
+    
+    @staticmethod
+    def encodePublicKey(public_key:EllipticCurvePublicKey) -> bytes:
+        return auth.getDerFromPublicEc(public_key)
+    
+    @staticmethod
+    def decodePublicKey(public_key:bytes) -> EllipticCurvePublicKey:
+        return auth.getPublicEcFromDer(public_key)
+    
+    @staticmethod
+    def encodeCertificateSize(certificate_size:int) -> bytes:
+        return struct.pack("!H", certificate_size)
+    
+    @staticmethod
+    def decodeCertificateSize(certificate_size:bytes) -> int:
+        return struct.unpack("!H", certificate_size)[0]
+    
+    @staticmethod
+    def encodeCertificate(certificate:Certificate) -> bytes:
+        return auth.getDerFromCertificate(certificate)
+    
+    @staticmethod
+    def decodeCertificate(certificate:bytes) -> Certificate:
+        return auth.getCertificateFromDer(certificate)
+    
+    @staticmethod
+    def encodeHeader(version: int, packet_type: Type, flags: list[int], sequence_id: int, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, public_key_size:int|None=None, public_key:EllipticCurvePublicKey|None=None, certificate_size:int|None=None, certificate:Certificate|None=None) -> bytes:
+        header = Packet.encodeHeader(version, packet_type, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum)
+        public_key_size = AuthPacket.encodePublicKeySize(public_key_size)
+        public_key = AuthPacket.encodePublicKey(public_key)
+        certificate_size = AuthPacket.encodeCertificateSize(certificate_size) if certificate_size != None else b""
+        certificate = AuthPacket.encodeCertificate(certificate) if certificate != None else b""
+        return header + public_key_size + public_key + certificate_size + certificate
+    
+    @staticmethod
+    def decodeHeader(header:bytes) -> tuple[int, Type, list[int], int, int|None, int|None, int|None, int|None, int, EllipticCurvePublicKey, int|None, Certificate|None, int]:
+        *h, offset = Packet.decodeHeader(header)
+        public_key_size = AuthPacket.decodePublicKeySize(header[offset:offset+1])
+        offset += 1
+        public_key = AuthPacket.decodePublicKey(header[offset:offset+public_key_size])
+        offset += public_key_size
+        if offset < len(header): # check if more bytes left to decode
+            certificate_size = AuthPacket.decodeCertificateSize(header[offset:offset+2])
+            offset += 2
+            certificate = AuthPacket.decodeCertificate(header[offset:offset+certificate_size])
+            offset += certificate_size
+        else:
+            certificate_size = None
+            certificate = None
+        return *h, public_key_size, public_key, certificate_size, certificate, offset
+    
+    # pack / unpack
+    @classmethod
+    def _packHeader(cls, p) -> bytes:
+        header = cls.encodeHeader(p.version, p.packet_type, p.flags, p.sequence_id, p.fragment_id, p.fragment_number, p.init_vector, p.checksum, p.public_key_size, p.public_key, p.certificate_size, p.certificate)
+        return header
+    
+    @classmethod
+    def unpack(cls, bytesP:bytes):
+        *header, offset = cls._unpackHeader(bytesP)
+        return cls(*header)
+            
 def unpack(rawP):
-    packet_type = Type(rawP[0] >> 4)
+    packet_type = Packet.decodeVersionType(rawP[0:1])[1]
     match (packet_type):
         case Type.DEFAULT:
             return Packet.unpack(rawP)
-        case Type.FRAG:
-            return FragPacket.unpack(rawP)
         case Type.ACK:
             return AckPacket.unpack(rawP)
         case Type.AUTH:
             return  AuthPacket.unpack(rawP)
         case _:
             raise TypeError(f"Invalid packet type {packet_type}")
-            pass
-    
-        
         
 if __name__ == "__main__":
-    # p = Packet()
-    # p.packet_type = Type.FRAG
-    # print(p.pack())
-    # print("e")
-    # p = FragPacket(65526, [0,0,1,1], 10, 40)#self.sequenceId)
-    p = AckPacket(12,15,[i%2 for i in range(ACK_BITS_SIZE)])
-    # p = FragPacket(1,fragId=1,fragNum=8)
-    # p.data = "PING"
-    b = p.pack(p)
-    pp = unpack(b)
-    print(p,"\t",b,"\t",p)
-    assert str(p) == str(b) == str(pp)
+    pass
+    

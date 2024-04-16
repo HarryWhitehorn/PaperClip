@@ -72,16 +72,23 @@ def generateEcKey():
     )
     return key
 
-def getDerFromPublicEc(ec_):
-    ecDer = ec_.public_bytes(
+def getDerFromPublicEc(publicKey):
+    ecDer = publicKey.public_bytes(
         encoding = serialization.Encoding.DER,
         format = serialization.PublicFormat.SubjectPublicKeyInfo
     )
     return ecDer
 
-def getPublicEcFromDer(ecDer):
-    ec_ = serialization.load_der_public_key(ecDer)
+def getPublicEcFromDer(publicKeyDer):
+    ec_ = serialization.load_der_public_key(publicKeyDer)
     return ec_
+
+def getDerFromCertificate(certificate):
+    return certificate.public_bytes(serialization.Encoding.DER)
+
+def getCertificateFromDer(certificateDer):
+    return x509.load_der_x509_certificate(certificateDer)
+
     
 def generateSessionKey(localKey, peerKey):
     sessionSecret = localKey.exchange(ec.ECDH(), peerKey)
