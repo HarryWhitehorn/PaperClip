@@ -75,7 +75,6 @@ class Node:
     
     # sends
     def sendPacket(self, addr, p):
-        # print(f"Sending {p} to {addr[1]}:{addr[0]}")
         print(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
         self.socket.sendto(p.pack(p), (addr[0],addr[1]))
         
@@ -101,13 +100,13 @@ class Node:
             self.sent_ack_buffer[p.sequence_id] = False
         self.queue.put((addr, p))
     
-    def queueDefault(self, addr, data=None):
-        p = packet.Packet(sequence_id=self.sequenceId, data=data)
+    def queueDefault(self, addr, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
+        p = packet.Packet(sequence_id=self.sequenceId, flags=flags, data=data)
         self.incrementSequenceId()
         self.queuePacket(addr, p)
         
-    def queueACK(self, addr, ackId, data=None):
-        p = packet.AckPacket(sequence_id=self.sequenceId, ack_id=ackId, ack_bits=self.recv_ack_buffer, data=data)
+    def queueACK(self, addr, ackId, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
+        p = packet.AckPacket(sequence_id=self.sequenceId, flags=flags, ack_id=ackId, ack_bits=self.recv_ack_buffer, data=data)
         self.incrementSequenceId()
         self.queuePacket(addr, p)
         

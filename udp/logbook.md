@@ -48,6 +48,8 @@
 ## Tue 16
 
 - Complete `packet` refactor to meet new specs.
-    - `pack` and `unpack` still yield the same value (`packet to bytes` and `bytes to packet`)
+    - `pack` and `unpack` still yield the same value (`packet to bytes` and `bytes to packet`).
     - `node` has been adjusted to still work. (Mostly using keyword for packet creation).
-    - A few test to check new `packet` structure
+    - A few test to check new `packet` structure.
+- Tested `ack`
+    - New `packet.lazyFlags(*flags:Type)` function that returns a valid flag array with all given flags set.

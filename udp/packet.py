@@ -28,6 +28,12 @@ class Flag(Enum):
     COMPRESSED = 2
     ENCRYPTED = 3
     CHECKSUM = 4
+    
+def lazyFlags(*fs:list[Flag]) -> list[int]:
+    flags = [0 for _ in range(FLAGS_SIZE)]
+    for flag in fs:
+        flags[flag.value] = 1
+    return flags
      
 class Packet:
     version:int = VERSION
@@ -40,7 +46,7 @@ class Packet:
     checksum:int|None = None
     data:bytes|None = None
     
-    def __init__(self, version:int=VERSION, packet_type:Type=Type.DEFAULT, flags:list[int]=[0 for _ in range(FLAGS_SIZE)], sequence_id:int=0, fragment_id:int|None=None, fragment_number:int|None=None, init_vector:int|None=None,checksum:int|None=None,data:bytes|None=None) -> None:
+    def __init__(self, version:int=VERSION, packet_type:Type=Type.DEFAULT, flags:list[int]=[0 for _ in range(FLAGS_SIZE)], sequence_id:int=None, fragment_id:int|None=None, fragment_number:int|None=None, init_vector:int|None=None, checksum:int|None=None, data:bytes|None=None) -> None:
         self.version = version
         self.packet_type = packet_type
         self.flags = flags
@@ -207,7 +213,7 @@ class AckPacket(Packet):
     ack_id:int = 0
     ack_bits:list[int|None] = [None for _ in range(ACK_BITS_SIZE)]
     
-    def __init__(self, version: int = VERSION, type:Type.ACK=Type.ACK, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = 0, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, ack_id:int=0, ack_bits:list[int|None]=[None for _ in range(ACK_BITS_SIZE)], data: bytes | None = None) -> None:
+    def __init__(self, version: int = VERSION, type:Type.ACK=Type.ACK, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = None, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, ack_id:int=None, ack_bits:list[int|None]=[None for _ in range(ACK_BITS_SIZE)], data: bytes | None = None) -> None:
         super().__init__(version, Type.ACK, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum, data)
         self.ack_id = ack_id
         self.ack_bits = ack_bits
@@ -260,7 +266,7 @@ class AuthPacket(Packet):
     _certificate_size:int|None = None
     certificate:Certificate|None = None
     
-    def __init__(self, version: int = VERSION, packet_type: Type = Type.AUTH, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = 0, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, public_key_size:int|None=None, public_key:EllipticCurvePublicKey|None=None, certificate_size:int|None=None, certificate:Certificate|None=None) -> None:
+    def __init__(self, version: int = VERSION, packet_type: Type = Type.AUTH, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = None, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, public_key_size:int|None=None, public_key:EllipticCurvePublicKey=None, certificate_size:int|None=None, certificate:Certificate|None=None) -> None:
         super().__init__(version, Type.AUTH, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum, data=None)
         self.public_key_size = public_key_size
         self.public_key = public_key
