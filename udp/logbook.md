@@ -53,3 +53,15 @@
     - A few test to check new `packet` structure.
 - Tested `ack`
     - New `packet.lazyFlags(*flags:Type)` function that returns a valid flag array with all given flags set.
+
+## Wed 17
+
+- Implemented `ENCRYPT` flag.
+    - Data is automatically encrypted on sending and decrypted on receiving if the flag is set.
+- Implemented  `COMPRESS` flag.
+    - Data is automatically compressed using standard `zlib` library (standard speed, no header or checksum) and decompressed on send and receive if flag set.
+- Implemented `CHECKSUM` flag.
+    - Checksum (CRC32) is automatically set on sending and validated on receiving if flag set.
+    - TODO: send `ERROR` on checksum fail.
+- `util.py` handles compression/decompression and checksum generation.
+- Created more tests.

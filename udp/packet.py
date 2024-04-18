@@ -3,6 +3,7 @@ from cryptography.x509 import Certificate
 from enum import Enum
 import struct
 import auth
+import utils
 
 VERSION = 0
 # SIZE in Bits
@@ -24,10 +25,10 @@ class Type(Enum):
     
 class Flag(Enum):
     RELIABLE = 0
-    FRAG = 1
+    CHECKSUM = 1
     COMPRESSED = 2
     ENCRYPTED = 3
-    CHECKSUM = 4
+    FRAG = 4
     
 def lazyFlags(*fs:list[Flag]) -> list[int]:
     flags = [0 for _ in range(FLAGS_SIZE)]
@@ -44,7 +45,7 @@ class Packet:
     fragment_number:int|None = None
     init_vector:int|None = None
     checksum:int|None = None
-    data:bytes|None = None
+    _data:bytes|None = None
     
     def __init__(self, version:int=VERSION, packet_type:Type=Type.DEFAULT, flags:list[int]=[0 for _ in range(FLAGS_SIZE)], sequence_id:int=None, fragment_id:int|None=None, fragment_number:int|None=None, init_vector:int|None=None, checksum:int|None=None, data:bytes|None=None) -> None:
         self.version = version
@@ -56,14 +57,79 @@ class Packet:
         self.init_vector = init_vector
         self.checksum = checksum
         self.data = data
+    
+    # util
+    def encryptData(self, session_key:bytes) -> None:
+        self.flags[Flag.ENCRYPTED.value] = 1
+        iv = self.init_vector if self.init_vector != None else auth.generateInitVector()
+        cipher, iv = auth.generateCipher(session_key, iv)
+        self.init_vector = iv
+        self.data = auth.encryptBytes(cipher, self.data)
         
-    # dunder
-    def __str__(self):
-        s = self.pack(self)
-        if len(s) > 16:
-            return f"{s[:15]}...{s[-1:]}"
+    def decryptData(self, session_key:bytes) -> None:
+        if self.flags[Flag.ENCRYPTED.value]:
+            cipher = auth.generateCipher(session_key, self.init_vector)[0]
+            self.data = auth.decryptBytes(cipher, self.data)
         else:
-            return str(s)
+            raise ValueError(f"Packet {self} is not flagged as ENCRYPTED ({self.flags}).")
+        
+    def compressData(self):
+        self.flags[Flag.COMPRESSED.value] = 1
+        self.data = utils.compressData(self.data)
+        
+    def decompressData(self):
+        if self.flags[Flag.COMPRESSED.value]:
+            self.data = utils.decompressData(self.data)
+        else:
+            raise ValueError(f"Packet {self} is not flagged as COMPRESSED ({self.flags}).")
+        
+    def setChecksum(self):
+        self.flags[Flag.CHECKSUM.value] = 1
+        data = self.data if self.data != None else b""
+        self.checksum = utils.generateChecksum(data) 
+        
+    def validateChecksum(self) -> bool:
+        if self.flags[Flag.CHECKSUM.value]:
+            data = self.data if self.data != None else b""
+            return self.checksum == utils.generateChecksum(data)
+        else:
+            raise ValueError(f"Packet {self} is not flagged as CHECKSUM ({self.flags}).")
+    
+    @staticmethod
+    def _getHeader(p):
+        header = {k:v for k,v in vars(p).items() if not k in ("data","fragment_id","fragment_number")}
+        return header
+    
+    def fragment(self):
+        self.flags[Flag.FRAG.value] = 1
+        header = Packet._getHeader(self)
+        fragData = utils.fragmentData(self.data)
+        fragment_number = len(fragData)
+        return [self._createFragment(header, fragment_id=i, fragment_number=fragment_number, data=data) for i,data in enumerate(fragData)]
+    
+    @classmethod
+    def _createFragment(cls, header: dict, fragment_id:int, fragment_number:int, data:bytes):
+        return cls(**header, fragment_id=fragment_id, fragment_number=fragment_number, data=data)
+    
+    @classmethod
+    def defragment(cls, frags):
+        if frags[0].flags[Flag.FRAG.value]:
+            header = Packet._getHeader(frags[0])
+            header["flags"][Flag.FRAG.value] = 0
+            data = utils.defragmentData([frag.data for frag in frags])
+            return cls(**header, data=data)
+        else:
+            raise ValueError(f"Packet {frags[0]} is not flagged as FRAG ({frags[0].flags}).")
+
+    # dunder
+    def __str__(self) -> str:
+        s = self.pack(self)
+        data = self.data if self.data != None else b""
+        pSize = len(s)
+        dSize = len(data)
+        if len(data) > 12:
+            data = f"{data[:11]}...{str(data[-1:])[1:]}"
+        return f"<{self.version}:{self.packet_type.name} {self.sequence_id} {''.join(map(str,self.flags))} {data} [{pSize}:{dSize}]>"
         
     def __eq__(self, other) -> bool:
         if isinstance(other, self.__class__):
@@ -135,12 +201,14 @@ class Packet:
         return struct.unpack("!B", fragment_number)[0]
     
     @staticmethod
-    def encodeInitVector(init_vector:int) -> bytes:
-        return struct.pack("!I", init_vector)
+    def encodeInitVector(init_vector:bytes) -> bytes:
+        # return struct.pack("!I", init_vector)
+        return init_vector
     
     @staticmethod
-    def decodeInitVector(init_vector: bytes) -> int:
-        return struct.unpack("!I", init_vector)[0]
+    def decodeInitVector(init_vector: bytes) -> bytes:
+        # return struct.unpack("!I", init_vector)[0]
+        return init_vector
     
     @staticmethod
     def encodeChecksum(checksum:int) -> bytes:
@@ -175,8 +243,8 @@ class Packet:
             fragment_id = None
             fragment_number = None
         if flags[Flag.ENCRYPTED.value]:
-            init_vector = Packet.decodeInitVector(header[offset:offset+4])
-            offset += 4
+            init_vector = Packet.decodeInitVector(header[offset:offset+16])
+            offset += 16
         else:
             init_vector = None
         if flags[Flag.CHECKSUM.value]:
@@ -213,10 +281,20 @@ class AckPacket(Packet):
     ack_id:int = 0
     ack_bits:list[int|None] = [None for _ in range(ACK_BITS_SIZE)]
     
-    def __init__(self, version: int = VERSION, type:Type.ACK=Type.ACK, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = None, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, ack_id:int=None, ack_bits:list[int|None]=[None for _ in range(ACK_BITS_SIZE)], data: bytes | None = None) -> None:
+    def __init__(self, version: int = VERSION, packet_type:Type.ACK=Type.ACK, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = None, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, ack_id:int=None, ack_bits:list[int|None]=[None for _ in range(ACK_BITS_SIZE)], data: bytes | None = None) -> None:
         super().__init__(version, Type.ACK, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum, data)
         self.ack_id = ack_id
         self.ack_bits = ack_bits
+        
+    # dunder
+    def __str__(self) -> str:
+        s = self.pack(self)
+        data = self.data if self.data != None else b""
+        pSize = len(s)
+        dSize = len(data)
+        if len(data) > 12:
+            data = f"{data[:11]}...{str(data[-1:])[1:]}"
+        return f"<{self.version}:{self.packet_type.name} {self.sequence_id}:{self.ack_id} {''.join(map(str,self.flags))} {data} [{pSize}:{dSize}]>"
         
     # encode / decode
     @staticmethod
@@ -294,7 +372,6 @@ class AuthPacket(Packet):
             self.certificate_size = self.getCertificateByteSize(self.certificate) if self.certificate != None else None
         return self._certificate_size
 
-    
     @certificate_size.setter
     def certificate_size(self, v:int|None) -> None:
         self._certificate_size = v

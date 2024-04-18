@@ -3,6 +3,8 @@ from packet import *
 import auth
 import threading
 from random import randint
+import utils
+import os
 
 ## node
 # def nodeSequenceIdLock():
@@ -16,6 +18,44 @@ from random import randint
 #     for t in threads:
 #         t.join()
 #     assert n.sequenceId == 16960, n.sequenceId
+
+# frag
+def testDefrag():
+    h = genRandAttr()
+    data = os.urandom(16)
+    p = Packet(*h)
+    p.flags[Flag.FRAG.value] = 0
+    p.fragment_id = None
+    p.fragment_number = None
+    p.data = data
+    fP = p.fragment()
+    dP = fP[0].defragment(fP)
+    assert p == dP, (p, fP, dP)
+    
+
+## utils
+def testDataCompress(d=os.urandom(16)):
+    cD = utils.compressData(d)
+    dD = utils.decompressData(cD)
+    assert d == dD, (d, cD, dD)
+
+## encrypt
+def testPacketEncryption():
+    h = genRandAttr()
+    p = Packet(*h)
+    p.flags[Flag.ENCRYPTED.value] = 1
+    d = b"Hello World"
+    p.data = d
+    localKey = auth.generateEcKey()
+    peerKey = auth.generateEcKey()
+    localSessionKey = auth.generateSessionKey(localKey, peerKey.public_key())
+    peerSessionKey = auth.generateSessionKey(peerKey, localKey.public_key())
+    p.encryptData(localSessionKey)
+    # print(p.data)
+    p.decryptData(peerSessionKey)
+    # print(p.data)
+    assert d == p.data, (d, p.data)
+    
 
 ## auth
 def sessionKey():
@@ -49,7 +89,8 @@ def genRandAttr(t=Type.DEFAULT):
         fId, fNum = None, None
     if randint(0,1):
         f[Flag.ENCRYPTED.value] = 1
-        iv = randint(0, 2**INIT_VECTOR_SIZE-1)
+        # iv = randint(0, 2**INIT_VECTOR_SIZE-1)
+        iv = auth.generateInitVector()
     else:
         iv = None
     if randint(0,1):
@@ -137,26 +178,32 @@ def testFlags():
     
 def testVersionType():
     # version type
-    v, pT = randint(0,2**VERSION_SIZE), Type(randint(0,max(t.value for t in Type)))
+    v, pT = randint(0,2**VERSION_SIZE-1), Type(randint(0,max(t.value for t in Type)))
     eVt = Packet.encodeVersionType(v,pT)
     dVt = Packet.decodeVersionType(eVt)
     assert (v, pT) == dVt, ((v, pT), eVt, dVt)
+    
 if __name__ == "__main__":
     print(f"\n{'-'*5}START test(s){'-'*5}")
-    ## node
-    # nodeSequenceIdLock()
-    ## auth
-    sessionKey()
-    encryptDecrypt()
-    ## packet
-    testVersionType()
-    testFlags()
-    testFrag()
-    testInitVector()
-    testChecksum()
-    testDefault()
-    testAckBits()
-    testAck()
-    testAuth()
+    ALL = False # True
+    if True:
+        ## node
+        # nodeSequenceIdLock()
+        ## auth
+        sessionKey()
+        encryptDecrypt()
+        ## packet
+        testVersionType()
+        testFlags()
+        testFrag()
+        testInitVector()
+        testChecksum()
+        testDefault()
+        testAckBits()
+        testAck()
+        testAuth()
+        testPacketEncryption()
+        testDataCompress()
+    testDefrag()
     print(f"\n{'-'*5}END test(s){'-'*5}")
     

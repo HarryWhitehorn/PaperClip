@@ -23,9 +23,6 @@ class Client(Node):
     def queueACK(self, addr=None, ackId=None, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
         return super().queueACK(self.targetAddr, ackId, flags=flags, data=data)
     
-    # def queueAuth(self, addr,):
-    #     return super().queueAuth(self.targetAddr, self.cert, self.ecKey.public_key())
-    
     def connect(self):
         self.outboundThread.start()
         self.queueAuth(self.targetAddr, self.cert, self.ecKey.public_key())
@@ -59,6 +56,7 @@ class Client(Node):
 if __name__ == "__main__":
     from node import S_HOST, S_PORT, C_HOST, C_PORT
     from time import sleep
+    import os
     portOffset = 0#int(input("offset: "))
     c = Client((C_HOST,C_PORT+portOffset), (S_HOST, S_PORT))
     
@@ -92,7 +90,12 @@ if __name__ == "__main__":
     # c.queueAuth()
     c.connect()
     # c.startThreads()
-    c.queueDefault(c.targetAddr, flags=packet.lazyFlags(packet.Flag.RELIABLE), data=b"Hello World")
+    # input(">")
+    flags=packet.lazyFlags(packet.Flag.RELIABLE, packet.Flag.CHECKSUM, packet.Flag.ENCRYPTED, packet.Flag.COMPRESSED, packet.Flag.FRAG) #packet.Flag.RELIABLE, packet.Flag.ENCRYPTED)
+    with open(r"udp/shakespeare.txt", "rb") as f:
+        data = f.read()
+    # c.queueACK(c.targetAddr, c.sequenceId, flags=flags, data=data)
+    c.queueDefault(c.targetAddr, flags=flags, data=data)
     # /
     # print(auth.getDerFromPublicEc(ec.public_key()))
     input()

@@ -116,7 +116,10 @@ def decryptBytes(cipher:Cipher, encryptedBytes, autoUnpad=True):
         decryptedBytes = unpadder.update(decryptedBytes) + unpadder.finalize()
     return decryptedBytes
 
-def generateCipher(sessionKey, iv=os.urandom(16)):
+def generateInitVector() -> bytes:
+    return os.urandom(16)
+
+def generateCipher(sessionKey, iv=generateInitVector()):
     cipher = Cipher(algorithms.AES(sessionKey), modes.CBC(iv))
     return cipher, iv
 

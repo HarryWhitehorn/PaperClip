@@ -19,7 +19,7 @@ class bcolors:
 
 S_HOST = "127.0.0.1"
 S_PORT = 2024
-BUFFER_SIZE = 2048 #1024 TODO: frag
+BUFFER_SIZE = 1024
 C_HOST = "127.0.0.1"
 C_PORT = S_PORT+1
 SLEEP_TIME = 0.1
@@ -32,6 +32,7 @@ class Node:
     cert = None
     ecKey = None
     sessionKey = None
+    fragBuffer:dict[int,list[packet.Packet]] = {}
     
     def __init__(self, addr):
         self.socket = socket.socket(type=socket.SOCK_DGRAM)
@@ -69,9 +70,23 @@ class Node:
     def port(self):
         return self.addr[1]
     
-    def checkACKed(self, p):
-        ackBit = self.sent_ack_buffer[p.sequence_id]
-        return ackBit
+    def getSentAckBit(self, addr, p):
+        return self.sent_ack_buffer[p.sequence_id]
+    
+    def setSentAckBit(self, addr, ackBit, v:bool):
+        self.sent_ack_buffer[ackBit] = v
+        
+    def getRecvAckBit(self, addr, p):
+        return self.recv_ack_buffer[p.sequence_id]
+    
+    def setRecvAckBit(self, addr, ackBit, v:bool):
+        self.recv_ack_buffer[ackBit] = v
+        
+    def getSessionKey(self, addr):
+        return self.sessionKey
+    
+    def getFragBuffer(self, addr):
+        return self.fragBuffer
     
     # sends
     def sendPacket(self, addr, p):
@@ -82,7 +97,7 @@ class Node:
         while self.isRunning.is_set():
             addr, p = self.queue.get()
             if p.flags[packet.Flag.RELIABLE.value]:
-                if self.checkACKed(p):
+                if self.getSentAckBit(addr, p):
                     continue
                 else:
                     self.sendPacket(addr, p)
@@ -95,10 +110,22 @@ class Node:
         else:
             print("| sendQueue thread stopping...")
             
-    def queuePacket(self, addr, p):
+    def queuePacket(self, addr, p:packet.Packet):
         if p.flags[packet.Flag.RELIABLE.value]:
-            self.sent_ack_buffer[p.sequence_id] = False
-        self.queue.put((addr, p))
+            # self.sent_ack_buffer[p.sequence_id] = False
+            self.setSentAckBit(addr, p.sequence_id, False)
+        if p.flags[packet.Flag.CHECKSUM.value]:
+            p.setChecksum()
+        if p.flags[packet.Flag.COMPRESSED.value]:
+            p.compressData()
+        if p.flags[packet.Flag.ENCRYPTED.value]:
+            p.encryptData(self.getSessionKey(addr))
+        if p.flags[packet.Flag.FRAG.value]:
+            frags = p.fragment()
+            for frag in frags:
+                self.queue.put((addr, frag))
+        else:
+            self.queue.put((addr, p))
     
     def queueDefault(self, addr, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
         p = packet.Packet(sequence_id=self.sequenceId, flags=flags, data=data)
@@ -131,25 +158,25 @@ class Node:
     
     def receive(self, p, addr):
         if p != None:
-            print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-            match (p.packet_type):
-                case packet.Type.DEFAULT:
-                    return self.receiveDefault(p, addr)
-                case packet.Type.ACK:
-                    return self.receiveAck(p, addr)
-                case packet.Type.AUTH:
-                    return self.receiveAuth(p, addr)
-                case _:
-                    raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
+            if self.handleFlags(p, addr):
+                print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+                match (p.packet_type):
+                    case packet.Type.DEFAULT:
+                        return self.receiveDefault(p, addr)
+                    case packet.Type.ACK:
+                        return self.receiveAck(p, addr)
+                    case packet.Type.AUTH:
+                        return self.receiveAuth(p, addr)
+                    case _:
+                        raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
     
-    def receiveDefault(self, p, addr):
-        if p.flags[packet.Flag.RELIABLE.value]:
-            self.recv_ack_buffer[p.sequence_id] = True
-            self.queueACK(addr, p.sequence_id)
+    def receiveDefault(self, p:packet.Packet, addr):
+        pass
         return (p,addr)
     
     def receiveAck(self, p, addr):
-        self.sent_ack_buffer[p.ack_id] = True
+        # self.sent_ack_buffer[p.ack_id] = True
+        self.setSentAckBit(addr, p.ack_id, True)
         return (p, addr)
         
     def receiveAuth(self, p, addr):
@@ -163,6 +190,78 @@ class Node:
             self.receive(p, addr)
         else:
             print("| listen thread stopping...")
+        
+    # flags handle
+    def handleFlags(self, p:packet.Packet, addr) -> bool:
+        # defrag -> decrypt -> decompress -> validate checksum -> reliable
+        if self.handleFrag(p, addr):
+            return False
+        else:
+            self.handleEncrypted(p, addr)
+            self.handleCompressed(p, addr)
+            self.handleChecksum(p, addr)
+            self.handleReliable(p, addr)
+            return True
+        
+    def handleReliable(self, p:packet.Packet, addr) -> bool:
+        if p.flags[packet.Flag.RELIABLE.value]:
+            # self.recv_ack_buffer[p.sequence_id] = True
+            self.setRecvAckBit(addr, p.sequence_id, True)
+            self.queueACK(addr, p.sequence_id)
+            return True
+        else:
+            return False
+        
+    def handleFrag(self, p:packet.Packet, addr) -> bool:
+        if p.flags[packet.Flag.FRAG.value]:
+            print(f"\t{bcolors.OKBLUE}< {addr} :{bcolors.ENDC}{bcolors.WARNING} FRAG {p.fragment_id}/{p.fragment_number} {p}{bcolors.ENDC}")
+            if not p.sequence_id in self.getFragBuffer(addr):
+                self.getFragBuffer(addr)[p.sequence_id] = [None for _ in range(p.fragment_number)]
+            self.getFragBuffer(addr)[p.sequence_id][p.fragment_id] = p
+            if all(self.getFragBuffer(addr)[p.sequence_id]):
+                defrag = p.defragment(self.getFragBuffer(addr)[p.sequence_id])
+                del self.getFragBuffer(addr)[p.sequence_id]
+                self.receive(defrag, addr)
+            return True
+        else:
+            return False
+        
+    def handleCompressed(self, p:packet.Packet, addr) -> bool:
+        if p.flags[packet.Flag.COMPRESSED.value]:
+            p.decompressData()
+            return True
+        else:
+            return False
+            
+    def handleEncrypted(self, p:packet.Packet, addr) -> bool:
+        if p.flags[packet.Flag.ENCRYPTED.value]:
+            p.decryptData(self.getSessionKey(addr))
+            return True
+        else:
+            return False
+        
+    def handleChecksum(self, p:packet.Packet, addr) -> bool:
+        if p.flags[packet.Flag.CHECKSUM.value]:
+            if not p.validateChecksum():
+                raise ValueError(f"\tInvalid checksum: {p}")
+            else:
+                print(f"\tValid checksum: {p}")
+            return True
+        else:
+            return False
+            
+    # util
+    @staticmethod
+    def encryptData(data:bytes, sessionKey:bytes, initVector:bytes=auth.generateInitVector()) -> tuple[bytes, bytes]:
+        cipher, initVector = auth.generateCipher(sessionKey, initVector)
+        data = auth.encryptBytes(cipher, data)
+        return data, initVector
+    
+    @staticmethod
+    def decryptData(data:bytes, sessionKey:bytes, initVector:bytes) -> tuple[bytes, bytes]:
+        cipher, initVector = auth.generateCipher(sessionKey, initVector)
+        data = auth.decryptBytes(cipher, data)
+        return data, initVector
     
     # misc
     def startThreads(self):
