@@ -1,9 +1,14 @@
-import socket
+from threading import Thread, Lock, Event
+from socket import socket as Socket
+from socket import SOCK_DGRAM
 import packet
-import threading
-import queue
+from queue import Queue
 import time
 import auth
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+from cryptography.x509 import Certificate
+import random
 
 class bcolors:
     HEADER = '\033[95m'
@@ -16,82 +21,156 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-
 S_HOST = "127.0.0.1"
 S_PORT = 2024
 BUFFER_SIZE = 1024
 C_HOST = "127.0.0.1"
 C_PORT = S_PORT+1
 SLEEP_TIME = 0.1
+ACK_RESET_SIZE = (2**packet.ACK_BITS_SIZE) // 2
 
 class Node:
-    _sequenceId = 0
-    sequenceIdLock = threading.Lock()
-    isRunning = threading.Event()
-    rsaKey = None
-    cert = None
-    ecKey = None
-    sessionKey = None
-    fragBuffer:dict[int,list[packet.Packet]] = {}
+    addr: tuple[str, int]
+    _sequenceId: int
+    sentAckBits = list[bool|None]
+    recvAckBits = list[bool|None]
+    newestSeqId: int|None
+    fragBuffer: dict[int,list[packet.Packet]]
+    queue: Queue
+    # id
+    # rsaKey: RSAPrivateKey|None
+    cert: Certificate|None
+    # session
+    ecKey: EllipticCurvePrivateKey
+    sessionKey: bytes|None
+    handshake: bool
+    # threads
+    inboundThread: Thread
+    outboundThread: Thread
+    sequenceIdLock: Lock
+    sendLock: Lock
+    isRunning: Event
+    # socket
+    socket: Socket|None
     
-    def __init__(self, addr):
-        self.socket = socket.socket(type=socket.SOCK_DGRAM)
+    def __init__(self, addr:tuple[str,int], cert:Certificate|None=None, sendLock:Lock=Lock(), socket:Socket|None=Socket(type=SOCK_DGRAM)) -> None:
         self.addr = addr
         self.sequenceId = 0
-        self.isRunning.set()
-        self.sent_ack_buffer = [None for _ in range(packet.SEQUENCE_ID_SIZE)]
-        self.recv_ack_buffer = [None for _ in range(packet.SEQUENCE_ID_SIZE)]
-        self.queue = queue.Queue()
-        self.rsaKey = auth.generateRsaKey()
-        self.cert = auth.generateCertificate(self.rsaKey)
-        self.ecKey = auth.generateEcKey()
-        self.socket.bind(self.addr)
+        self.sentAckBits = [None for _ in range(2**packet.ACK_BITS_SIZE)]
+        self.recvAckBits = [None for _ in range(2**packet.ACK_BITS_SIZE)]
+        self.newestSeqId = 0
+        self.fragBuffer = {}
+        self.queue = Queue()
+        # id
+        # self.rsaKey = auth.generateRsaKey()
+        self.cert = cert # auth.generateCertificate(self.rsaKey)
+        # session
+        self.regenerateEcKey()
+        self.sessionKey = None
+        self.handshake = False
         # threads
-        self.inboundThread = threading.Thread(target=self.listen, daemon=True)
-        self.outboundThread = threading.Thread(target=self.sendQueue, daemon=True)
-        
-    @property
-    def sequenceId(self):
-        return self._sequenceId
+        self.inboundThread = Thread(target=self.listen,daemon=True)
+        self.outboundThread = Thread(target=self.sendQueue,daemon=True)
+        self.sequenceIdLock = Lock()
+        self.sendLock = sendLock
+        self.isRunning = Event()
+        self.isRunning.set()
+        # socket
+        self.socket = socket
     
-    @sequenceId.setter
-    def sequenceId(self, v):
-        self._sequenceId = v % 2**packet.SEQUENCE_ID_SIZE
-        
-    def incrementSequenceId(self):
-        with self.sequenceIdLock:
-            self.sequenceId += 1
-        
+    def bind(self, addr):
+        self.socket.bind(addr)
+    
+    # properties
     @property
-    def host(self):
+    def host(self) -> str:
         return self.addr[0]
     
     @property
-    def port(self):
+    def port(self) -> int:
         return self.addr[1]
     
-    def getSentAckBit(self, addr, p):
-        return self.sent_ack_buffer[p.sequence_id]
+    @property
+    def sequenceId(self) -> int:
+        return self._sequenceId
     
-    def setSentAckBit(self, addr, ackBit, v:bool):
-        self.sent_ack_buffer[ackBit] = v
+    @sequenceId.setter
+    def sequenceId(self, v:int) -> None:
+        self._sequenceId = v % 2**packet.SEQUENCE_ID_SIZE
         
-    def getRecvAckBit(self, addr, p):
-        return self.recv_ack_buffer[p.sequence_id]
+    def incrementSequenceId(self, addr) -> None:
+        with self.getSequenceIdLock(addr):
+            self.sequenceId += 1
+        
+    def getSentAckBit(self, addr:tuple[str, int], p:packet.Packet) -> bool|None:
+        return self.sentAckBits[p.sequence_id]
     
-    def setRecvAckBit(self, addr, ackBit, v:bool):
-        self.recv_ack_buffer[ackBit] = v
+    def setSentAckBit(self, addr:tuple[str, int], ackBit:int, v:bool) -> None:
+        self.sentAckBits[ackBit] = v
         
-    def getSessionKey(self, addr):
+    def getSentAckBits(self, addr:tuple[str, int]) -> list[bool|None]:
+        return self.sentAckBits
+    
+    def getRecvAckBit(self, addr:tuple[str, int], p:packet.Packet) -> bool|None:
+        return self.recvAckBits[p.sequence_id]
+    
+    def getRecvAckBits(self, addr:tuple[str, int]) -> list[bool|None]:
+        return self.recvAckBits
+    
+    def setRecvAckBit(self, addr:tuple[str, int], ackBit:int, v:bool) -> None:
+        self.recvAckBits[ackBit] = v
+        
+    def resetRecvAckBits(self, addr:tuple[str, int]) ->None:
+        recvAckBits = self.getRecvAckBits(addr)
+        newestSeqId = self.getNewestSeqId(addr)
+        f = lambda x: (x-ACK_RESET_SIZE) % 2**packet.ACK_BITS_SIZE
+        pointer = f(newestSeqId)
+        counter = 0
+        while counter != pointer:
+            recvAckBits[(newestSeqId+1+counter)%2**packet.ACK_BITS_SIZE] = None
+            counter += 1
+            
+    def getNewestSeqId(self, addr:tuple[str, int]) -> int:
+        return self.newestSeqId
+    
+    def setNewestSeqId(self, addr:tuple[str, int], newestSeqId:int) -> None:
+        self.newestSeqId = newestSeqId
+        
+    @staticmethod
+    def getNewerSeqId(currentSeqId: int, newSeqId:int) -> int:
+        currentDiff = (newSeqId-currentSeqId)%(2**packet.ACK_BITS_SIZE)
+        newDiff = (currentSeqId-newSeqId)%(2**packet.ACK_BITS_SIZE)
+        if newDiff < currentDiff:
+            return currentSeqId
+        else:
+            return newSeqId
+        
+    def getSessionKey(self, addr:tuple[str, int]) -> int:
         return self.sessionKey
     
-    def getFragBuffer(self, addr):
+    def getHandshake(self, addr:tuple[str,int]) -> bool:
+        return self.handshake
+    
+    def getFragBuffer(self, addr:tuple[str, int]) -> dict[int,list[packet.Packet]]:
         return self.fragBuffer
     
+    def getSequenceId(self, addr:tuple[str, int]) -> int:
+        return self.sequenceId
+    
+    def getSequenceIdLock(self, addr):
+        return self.sequenceIdLock
+    
+    def getQueue(self, addr:tuple[str, int]) -> Queue:
+        return self.queue
+    
+    def regenerateEcKey(self) -> None:
+        self.ecKey = auth.generateEcKey()
+        
     # sends
     def sendPacket(self, addr, p):
-        print(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-        self.socket.sendto(p.pack(p), (addr[0],addr[1]))
+        with self.sendLock:
+            print(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+            self.socket.sendto(p.pack(p), (addr[0],addr[1]))
         
     def sendQueue(self):
         while self.isRunning.is_set():
@@ -112,7 +191,6 @@ class Node:
             
     def queuePacket(self, addr, p:packet.Packet):
         if p.flags[packet.Flag.RELIABLE.value]:
-            # self.sent_ack_buffer[p.sequence_id] = False
             self.setSentAckBit(addr, p.sequence_id, False)
         if p.flags[packet.Flag.CHECKSUM.value]:
             p.setChecksum()
@@ -123,23 +201,24 @@ class Node:
         if p.flags[packet.Flag.FRAG.value]:
             frags = p.fragment()
             for frag in frags:
-                self.queue.put((addr, frag))
+                self.getQueue(addr).put((addr, frag))
         else:
-            self.queue.put((addr, p))
+            self.getQueue(addr).put((addr, p))
     
     def queueDefault(self, addr, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
-        p = packet.Packet(sequence_id=self.sequenceId, flags=flags, data=data)
-        self.incrementSequenceId()
+        p = packet.Packet(sequence_id=self.getSequenceId(addr), flags=flags, data=data)
+        self.incrementSequenceId(addr)
         self.queuePacket(addr, p)
         
     def queueACK(self, addr, ackId, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
-        p = packet.AckPacket(sequence_id=self.sequenceId, flags=flags, ack_id=ackId, ack_bits=self.recv_ack_buffer, data=data)
-        self.incrementSequenceId()
+        ack_bits = self.packRecvAckBits(self.getRecvAckBits(addr), ackId)
+        p = packet.AckPacket(sequence_id=self.getSequenceId(addr), flags=flags, ack_id=ackId, ack_bits=ack_bits, data=data)
+        self.incrementSequenceId(addr)
         self.queuePacket(addr, p)
         
     def queueAuth(self, addr, cert, publicEc):
-        p = packet.AuthPacket(sequence_id=self.sequenceId, certificate=cert, public_key=publicEc)
-        self.incrementSequenceId()
+        p = packet.AuthPacket(sequence_id=self.getSequenceId(addr), certificate=cert, public_key=publicEc)
+        self.incrementSequenceId(addr)
         self.queuePacket(addr, p)
         
     def queueFinished(self, addr, seqId, sessionKey):
@@ -171,15 +250,20 @@ class Node:
                         raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
     
     def receiveDefault(self, p:packet.Packet, addr):
-        pass
+        self.setNewestSeqId(addr, self.getNewerSeqId(self.getNewestSeqId(addr), p.sequence_id))
         return (p,addr)
     
-    def receiveAck(self, p, addr):
-        # self.sent_ack_buffer[p.ack_id] = True
+    def receiveAck(self, p:packet.AckPacket, addr):
+        self.setNewestSeqId(addr, self.getNewerSeqId(self.getNewestSeqId(addr), p.sequence_id))
         self.setSentAckBit(addr, p.ack_id, True)
+        # set all bits from ack bits to true (to mitigate lost ack)
+        for i,j in enumerate(range(p.ack_id-1, p.ack_id-1-packet.ACK_BITS_SIZE, -1)):
+            if p.ack_bits[i]:
+                self.setSentAckBit(addr, j, True)
+        # print(self.sentAckBits)
         return (p, addr)
         
-    def receiveAuth(self, p, addr):
+    def receiveAuth(self, p:packet.AuthPacket, addr):
         raise NotImplementedError(f"Node should not receive auth. A child class must overwrite.")
         return (p, addr)
         
@@ -205,9 +289,13 @@ class Node:
         
     def handleReliable(self, p:packet.Packet, addr) -> bool:
         if p.flags[packet.Flag.RELIABLE.value]:
-            # self.recv_ack_buffer[p.sequence_id] = True
+            self.setNewestSeqId(addr, self.getNewerSeqId(self.getNewestSeqId(addr), p.sequence_id))
             self.setRecvAckBit(addr, p.sequence_id, True)
-            self.queueACK(addr, p.sequence_id)
+            self.resetRecvAckBits(addr)
+            if random.randint(0,3): # TODO: NOTE: DEBUG REMOVE
+                self.queueACK(addr, p.sequence_id)
+            else:
+                print(f"\t{bcolors.FAIL}{bcolors.BOLD}--DEBUG DROPPED ACK for {p}--{bcolors.ENDC}")
             return True
         else:
             return False
@@ -263,6 +351,14 @@ class Node:
         data = auth.decryptBytes(cipher, data)
         return data, initVector
     
+    @staticmethod
+    def packRecvAckBits(recvAckBits, ackId) -> list[bool|None]:
+        return [recvAckBits[i%2**packet.ACK_BITS_SIZE] for i in range(ackId-1, ackId-1-packet.ACK_BITS_SIZE, -1)]
+    
+    # @staticmethod
+    # def unpackRecvAckBit(packedRecvAckBits, ackId):
+    #     return 
+    
     # misc
     def startThreads(self):
         self.inboundThread.start()
@@ -272,6 +368,10 @@ class Node:
     def validateCert(cert):
         # TODO: valid cert check
         return True
+    
+    def validateHandshake(self, finished):
+        self.handshake = Node._generateFinished(self.sessionKey) == finished
+        return self.handshake
             
     
 if __name__ == "__main__":

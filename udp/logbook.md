@@ -65,3 +65,14 @@
     - TODO: send `ERROR` on checksum fail.
 - `util.py` handles compression/decompression and checksum generation.
 - Created more tests.
+
+## Thurs 18
+
+- Refactored `Node`.
+    - `Server` now uses `Nodes` to track client information.
+        - Each client has its own send thread (thus `seqId`).
+        - `ecKey` now unique for every client and reset for on every new handshake.
+- Implemented rolling reset for `recvAckBits`.
+- Encode last 16 bits into `ACK` packet (such that `[ack_id-1, ack_id-2, ack_id-3...ack_id-17]`).
+    - On receiving an `ACK` packet the `Node` will now set all bits from the `ack_bits`, in addition to the `ack_id`, to `True` (mitigating against lost `ACK` packets).
+- Tested both whole `Packet` loss (incoming) and `ACK` loss (outgoing) and validated that the sending acted accordingly (i.e. resend lost `Packets` and used `ack_bits` for lost `ACKs`).

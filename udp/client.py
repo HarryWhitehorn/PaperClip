@@ -1,13 +1,19 @@
 from node import Node, bcolors
 import auth
 import packet
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 # from queue import Queue
 # from . import ADDR,PORT
 
 class Client(Node):
+    targetAddr: tuple[str,int]
+    rsaKey: RSAPrivateKey
+
     def __init__(self, addr, targetAddr):
-        super().__init__(addr)
         self.targetAddr = targetAddr
+        self.rsaKey = auth.generateRsaKey()
+        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey))
+        self.bind(self.addr)
     
     @property
     def targetHost(self):
@@ -24,6 +30,7 @@ class Client(Node):
         return super().queueACK(self.targetAddr, ackId, flags=flags, data=data)
     
     def connect(self):
+        print(f"{bcolors.WARNING}# Handshake with {self.targetAddr} starting.{bcolors.ENDC}")
         self.outboundThread.start()
         self.queueAuth(self.targetAddr, self.cert, self.ecKey.public_key())
         authPacket = None
@@ -46,7 +53,7 @@ class Client(Node):
                 print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
             if authPacket != None and ackPacket != None:
                 break
-        if Node._generateFinished(self.sessionKey) == ackPacket.data:
+        if self.validateHandshake(p.data):
             # success
             print(f"{bcolors.OKGREEN}Handshake success starting mainloop...{bcolors.ENDC}")
             self.inboundThread.start()
@@ -59,22 +66,6 @@ if __name__ == "__main__":
     import os
     portOffset = 0#int(input("offset: "))
     c = Client((C_HOST,C_PORT+portOffset), (S_HOST, S_PORT))
-    
-    def killServer():
-        print("---START killServer---")
-        c.queueDefault("KILL", [1,0,0,0])
-        print("---END killServer---")
-    
-    def testAck(n=4):
-        print("---START testACK---")
-        for i in range(n):
-            c.queueDefault(f"Hello World {i}", [1,0,0,0])
-        print("---END testACK---")
-        
-    def testAuth():
-        print("---Starting testAuth---")
-        c.queueAuth()
-        print("---END testAuth---")
     
     print("Press <enter> to kill client.")
     # c.mainloop()
@@ -91,11 +82,15 @@ if __name__ == "__main__":
     c.connect()
     # c.startThreads()
     # input(">")
-    flags=packet.lazyFlags(packet.Flag.RELIABLE, packet.Flag.CHECKSUM, packet.Flag.ENCRYPTED, packet.Flag.COMPRESSED, packet.Flag.FRAG) #packet.Flag.RELIABLE, packet.Flag.ENCRYPTED)
+    flags=packet.lazyFlags(packet.Flag.RELIABLE)#, packet.Flag.FRAG)#packet.Flag.RELIABLE, packet.Flag.CHECKSUM, packet.Flag.ENCRYPTED)#, packet.Flag.COMPRESSED)#, packet.Flag.FRAG) #packet.Flag.RELIABLE, packet.Flag.ENCRYPTED)
     with open(r"udp/shakespeare.txt", "rb") as f:
         data = f.read()
-    # c.queueACK(c.targetAddr, c.sequenceId, flags=flags, data=data)
-    c.queueDefault(c.targetAddr, flags=flags, data=data)
+    data = data[:len(data)//4]
+    # c.queueACK(c.targetAddr, c.sequenceId, flags=flags, data=b"Hello World")
+    # for _ in range(2*(2**packet.ACK_BITS_SIZE//3)):
+    for i in range(50):
+        c.queueDefault(c.targetAddr, flags=flags, data=f"HelloWorld{i}".encode())
+    c.queueDefault(c.targetAddr, data=b"DONE")
     # /
     # print(auth.getDerFromPublicEc(ec.public_key()))
     input()
