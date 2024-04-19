@@ -2,8 +2,8 @@ from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 from cryptography.x509 import Certificate
 from enum import Enum
 import struct
-import auth
-import utils
+
+from . import auth, utils
 
 VERSION = 0
 # SIZE in Bits

@@ -1,31 +1,37 @@
-from node import Node, bcolors
-import auth
-import packet
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
-import random
-import time
-from datetime import datetime
 from threading import Thread, Lock, Event
-# from . import ADDR,PORT
+from datetime import datetime
+import socket
+import time
+
+from . import bcolors, node, packet, auth
 
 HEARTBEAT_MAX_TIME = 120 # seconds
 HEARTBEAT_MIN_TIME = 30 # seconds
+MAX_CLIENTS = float("inf") # no limit
 
-class Server(Node):
-    clients: dict[tuple[str, int], Node]
+class Server(node.Node):
+    clients: dict[tuple[str, int], node.Node]
     clientsLock: Lock
     clientDeleteEvent: Event
     rsaKey: RSAPrivateKey|None
     heartbeatThread: Thread
+    onClientJoin: None
+    onClientLeave: None
+    maxClients: int
     
-    def __init__(self, addr, _callback=None):
+    def __init__(self, addr, maxClients:int=MAX_CLIENTS, onClientJoin=None, onClientLeave=None, onReceiveData=None):
         self.clients = {}
         self.clientsLock = Lock()
         self.clientDeleteEvent = Event()
         self.clientDeleteEvent.set()
         self.rsaKey = auth.generateRsaKey()
         self.heartbeatThread = Thread(target=self.heartbeat, daemon=True)
-        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey),_callback=_callback)
+        self.onClientJoin = onClientJoin
+        self.onClientLeave = onClientLeave
+        self.maxClients = maxClients
+        s = socket.socket(type=socket.SOCK_DGRAM)
+        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey), socket=s, onReceiveData=onReceiveData)
         self.bind(self.addr)
             
     def receiveDefault(self, p, addr):
@@ -42,33 +48,40 @@ class Server(Node):
                 if not self.validateHandshake(addr, p.data):
                     raise ValueError(f"Local finished value does not match peer finished value {p.data}")
                 else:
-                    print(f"{bcolors.OKGREEN}# Handshake with {self.addr} successful.{bcolors.ENDC}")
+                    print(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
+                    if self.onClientJoin:
+                        self.onClientJoin(addr)
                  
     def receiveAuth(self, p:packet.AuthPacket, addr):
         if not addr in self.clients: # new client
-            print(f"{bcolors.WARNING}# Handshake with {self.addr} starting.{bcolors.ENDC}")
-            if not Node.validateCert(p.certificate):
-                raise ValueError(f"Invalid peer cert {p.certificate}")
+            if self.getClientLength() < self.maxClients: # check space
+                print(f"{bcolors.WARNING}# Handshake with {addr} starting.{bcolors.ENDC}")
+                if not node.Node.validateCert(p.certificate):
+                    raise ValueError(f"Invalid peer cert {p.certificate}")
+                else:
+                    self.makeClient(addr, p.certificate)
+                    self.regenerateEcKey(addr)
+                    sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
+                    self.setSessionKey(addr,sessionKey)
+                    self.queueAuth(addr, self.cert, self.getEcKey(addr).public_key())
+                    self.queueFinished(addr, p.sequence_id, self.getSessionKey(addr))
             else:
-                self.makeClient(addr, p.certificate)
-                self.regenerateEcKey(addr)
-                sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
-                self.setSessionKey(addr,sessionKey)
-                self.queueAuth(addr, self.cert, self.getEcKey(addr).public_key())
-                self.queueFinished(addr, p.sequence_id, self.getSessionKey(addr))
+                print(f"{bcolors.FAIL}# Handshake with {addr} denied due to NO_SPACE.{bcolors.ENDC}")
+                # ToDo: send no space ERROR
         else:
             sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
-        if self.getSessionKey(addr) !=  sessionKey: # new client sessionKey
-            print(f"{bcolors.WARNING}# Handshake with {self.addr} reset.{bcolors.ENDC}")
-            if not Node.validateCert(p.certificate):
-                raise ValueError(f"Invalid peer cert {p.certificate}")
-            else:
-                self.regenerateEcKey(addr)
-                # self.clients[addr].cert = p.certificate # shouldn't change
-                sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
-                self.setSessionKey(addr,sessionKey) # make new session key
-                self.queueAuth(addr, self.cert, self.getEcKey(addr).public_key())
-                self.queueFinished(addr, p.sequence_id, self.getSessionKey(addr))
+        if addr in self.clients:
+            if self.getSessionKey(addr) !=  sessionKey: # new client sessionKey
+                print(f"{bcolors.WARNING}# Handshake with {addr} reset.{bcolors.ENDC}")
+                if not node.Node.validateCert(p.certificate):
+                    raise ValueError(f"Invalid peer cert {p.certificate}")
+                else:
+                    self.regenerateEcKey(addr)
+                    # self.clients[addr].cert = p.certificate # shouldn't change
+                    sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
+                    self.setSessionKey(addr,sessionKey) # make new session key
+                    self.queueAuth(addr, self.cert, self.getEcKey(addr).public_key())
+                    self.queueFinished(addr, p.sequence_id, self.getSessionKey(addr))
         return (p, addr)
         
     def _testPacket(self, addr):
@@ -167,6 +180,10 @@ class Server(Node):
     def validateHandshake(self, clientAddr, finished:bytes):
         with self.clientsLock:
             return self.clients[clientAddr].validateHandshake(finished)
+        
+    def getClientLength(self):
+        with self.clientsLock:
+            return len(self.clients)
 
     def listen(self):
         print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
@@ -206,7 +223,7 @@ class Server(Node):
             # print("HEART STOPPING")
                     
     def makeClient(self, clientAddr, cert):
-        c = Node(clientAddr, cert=cert, sendLock=self.sendLock, socket=self.socket)
+        c = node.Node(clientAddr, cert=cert, sendLock=self.sendLock, socket=self.socket)
         c.outboundThread.start()
         with self.clientsLock:
             self.clients[clientAddr] = c
@@ -215,6 +232,8 @@ class Server(Node):
         with self.clientsLock:
             print(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
             del self.clients[clientAddr]
+            if self.onClientLeave:
+                self.onClientLeave(clientAddr)
     
     # misc
     def startThreads(self):
@@ -223,8 +242,10 @@ class Server(Node):
         
 
 if __name__ == "__main__":
-    from node import S_HOST, S_PORT
     from time import sleep
+    
+    from . import S_HOST, S_PORT
+    
     s = Server((S_HOST,S_PORT))
     print("\n"*4+"Press <enter> to kill client.")
     s.startThreads()

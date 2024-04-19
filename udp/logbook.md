@@ -79,3 +79,11 @@
 - Implemented `Heartbeat` packet.
     - `Heartbeat` is sent with `heartbeat=False` to indicate `PING`. A `PING` **MUST** be replied to with a `Heartbeat` packet with `heartbeat=True` to indicate `PONG`.
     - The sever polls all clients every `HEARTBEAT_MIN_TIME` (30 seconds) and either sends a `PING` `if heartbeat delta > HEARTBEAT_MIN_TIME` **OR** drops `client` `if heartbeat delta > HEARTBEAT_MAX_TIME` (60 seconds) where `heartbeat delta = now() - last contact` in seconds.
+
+## Fri 19
+
+- Refactored `udp` in to package.
+- Added callbacks:
+    - `Node.onReceiveData(addr, data)` will call with p.data for a received `Packet`.
+    - `Server.onClientJoin(addr)` and `Server.onClientLeave(addr)` will call with `clientAddr` after a `handshake` is completed or `heartbeat` fails respectively.
+- `Server.maxClients` prevent any new clients from connecting once `len(Server.clients) >= Server.maxClients`. Therefore, drops any incoming packets without processing. Will still allow a connected client to reset connection.

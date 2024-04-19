@@ -1,10 +1,10 @@
-from node import Node, S_HOST, S_PORT, C_HOST, C_PORT
-from packet import *
-import auth
-import threading
 from random import randint
+import threading
 import utils
 import os
+
+from . import Node, auth, S_HOST, S_PORT, C_HOST, C_PORT
+from .packet import *
 
 ## node
 # def nodeSequenceIdLock():

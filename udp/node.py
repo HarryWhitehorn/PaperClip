@@ -1,32 +1,16 @@
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
+from cryptography.x509 import Certificate
 from threading import Thread, Lock, Event
 from socket import socket as Socket
 from socket import SOCK_DGRAM
-import packet
-from queue import Queue
-import time
-import auth
-from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
-from cryptography.x509 import Certificate
-import random
 from datetime import datetime
+from queue import Queue
+import random
+import time
 
-class bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+from . import bcolors, packet, auth
 
-S_HOST = "127.0.0.1"
-S_PORT = 2024
 BUFFER_SIZE = 1024
-C_HOST = "127.0.0.1"
-C_PORT = S_PORT+1
 SLEEP_TIME = 0.1
 ACK_RESET_SIZE = (2**packet.ACK_BITS_SIZE) // 2
 
@@ -55,9 +39,9 @@ class Node:
     # socket
     socket: Socket|None
     # callback
-    _callback: None
+    onReceiveData: None
     
-    def __init__(self, addr:tuple[str,int], cert:Certificate|None=None, sendLock:Lock=Lock(), socket:Socket|None=Socket(type=SOCK_DGRAM), _callback:None=None) -> None:
+    def __init__(self, addr:tuple[str,int], cert:Certificate|None=None, sendLock:Lock=Lock(), socket:Socket|None=Socket(type=SOCK_DGRAM), onReceiveData:None=None) -> None:
         self.addr = addr
         self.sequenceId = 0
         self.sentAckBits = [None for _ in range(2**packet.ACK_BITS_SIZE)]
@@ -82,7 +66,7 @@ class Node:
         # socket
         self.socket = socket
         # callback
-        self._callback = _callback
+        self.onReceiveData = onReceiveData
     
     def bind(self, addr):
         self.socket.bind(addr)
@@ -273,8 +257,8 @@ class Node:
     
     def receiveDefault(self, p:packet.Packet, addr):
         self.setNewestSeqId(addr, self.getNewerSeqId(self.getNewestSeqId(addr), p.sequence_id))
-        if self._callback:
-            self._callback(p.data)
+        if self.onReceiveData:
+            self.onReceiveData(addr, p.data)
         return (p,addr)
     
     def receiveAck(self, p:packet.AckPacket, addr):
