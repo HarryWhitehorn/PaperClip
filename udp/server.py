@@ -3,19 +3,34 @@ import auth
 import packet
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 import random
+import time
+from datetime import datetime
+from threading import Thread, Lock, Event
 # from . import ADDR,PORT
 
+HEARTBEAT_MAX_TIME = 120 # seconds
+HEARTBEAT_MIN_TIME = 30 # seconds
+
 class Server(Node):
-    clients: dict[tuple[str, int], Node] = {}
+    clients: dict[tuple[str, int], Node]
+    clientsLock: Lock
+    clientDeleteEvent: Event
     rsaKey: RSAPrivateKey|None
+    heartbeatThread: Thread
     
-    def __init__(self, addr):
+    def __init__(self, addr, _callback=None):
+        self.clients = {}
+        self.clientsLock = Lock()
+        self.clientDeleteEvent = Event()
+        self.clientDeleteEvent.set()
         self.rsaKey = auth.generateRsaKey()
-        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey))
+        self.heartbeatThread = Thread(target=self.heartbeat, daemon=True)
+        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey),_callback=_callback)
         self.bind(self.addr)
             
     def receiveDefault(self, p, addr):
         super().receiveDefault(p, addr)
+        # TODO: NOTE: DEBUG REMOVE
         if p.data == b"KILL":
             self.isRunning.clear()
         if p.data == b"TEST":
@@ -24,7 +39,7 @@ class Server(Node):
     def receiveAck(self, p, addr):
             super().receiveAck(p, addr)
             if p.data != None and not self.getHandshake(addr): # ack has payload & client has not completed handshake => validate handshake
-                if not self.clients[addr].validateHandshake(p.data):
+                if not self.validateHandshake(addr, p.data):
                     raise ValueError(f"Local finished value does not match peer finished value {p.data}")
                 else:
                     print(f"{bcolors.OKGREEN}# Handshake with {self.addr} successful.{bcolors.ENDC}")
@@ -35,9 +50,10 @@ class Server(Node):
             if not Node.validateCert(p.certificate):
                 raise ValueError(f"Invalid peer cert {p.certificate}")
             else:
-                self.clients[addr] = self.makeClient(addr, p.certificate)
+                self.makeClient(addr, p.certificate)
+                self.regenerateEcKey(addr)
                 sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
-                self.clients[addr].sessionKey = sessionKey
+                self.setSessionKey(addr,sessionKey)
                 self.queueAuth(addr, self.cert, self.getEcKey(addr).public_key())
                 self.queueFinished(addr, p.sequence_id, self.getSessionKey(addr))
         else:
@@ -47,9 +63,10 @@ class Server(Node):
             if not Node.validateCert(p.certificate):
                 raise ValueError(f"Invalid peer cert {p.certificate}")
             else:
-                self.clients[addr].regenerateEcKey()
-                self.clients[addr].cert = p.certificate # shouldn't change
-                self.clients[addr].sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key) # make new session key
+                self.regenerateEcKey(addr)
+                # self.clients[addr].cert = p.certificate # shouldn't change
+                sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
+                self.setSessionKey(addr,sessionKey) # make new session key
                 self.queueAuth(addr, self.cert, self.getEcKey(addr).public_key())
                 self.queueFinished(addr, p.sequence_id, self.getSessionKey(addr))
         return (p, addr)
@@ -59,83 +76,150 @@ class Server(Node):
         self.queueDefault(addr, flags=flags, data=b"Hello World To You Too")
     
     def getSessionKey(self, clientAddr):
-        return self.clients[clientAddr].sessionKey
+        with self.clientsLock:
+            return self.clients[clientAddr].sessionKey
+        
+    def setSessionKey(self, clientAddr, sessionKey:bytes):
+        with self.clientsLock:
+            self.clients[clientAddr].sessionKey = sessionKey
     
     def getHandshake(self, clientAddr):
-        return self.clients[clientAddr].handshake
+        with self.clientsLock:
+            return self.clients[clientAddr].handshake
     
     def getSentAckBit(self, clientAddr, p):
-        return self.clients[clientAddr].sentAckBits[p.sequence_id]
+        with self.clientsLock:
+            return self.clients[clientAddr].sentAckBits[p.sequence_id]
     
     def setSentAckBit(self, clientAddr, ackBit, v:bool):
-        self.clients[clientAddr].sentAckBits[ackBit] = v
+        with self.clientsLock:
+            self.clients[clientAddr].sentAckBits[ackBit] = v
         
     def getSentAckBits(self, clientAddr):
-        return self.clients[clientAddr].sentAckBits
+        with self.clientsLock:
+            return self.clients[clientAddr].sentAckBits
         
     def getRecvAckBit(self, clientAddr, p):
-        return self.clients[clientAddr].recvAckBits[p.sequence_id]
+        with self.clientsLock:
+            return self.clients[clientAddr].recvAckBits[p.sequence_id]
     
     def getRecvAckBits(self, clientAddr):
-        return self.clients[clientAddr].recvAckBits
+        with self.clientsLock:
+            return self.clients[clientAddr].recvAckBits
     
     def setRecvAckBit(self, clientAddr, ackBit, v:bool):
-        self.clients[clientAddr].recvAckBits[ackBit] = v
+        with self.clientsLock:
+            self.clients[clientAddr].recvAckBits[ackBit] = v
         
     def getNewestSeqId(self, clientAddr):
-        if clientAddr in self.clients:
-            return self.clients[clientAddr].newestSeqId
-        else:
-            return 0
+        with self.clientsLock:
+            if clientAddr in self.clients:
+                return self.clients[clientAddr].newestSeqId
+            else:
+                return 0
         
     def setNewestSeqId(self, clientAddr, newSeqId:int):
-        if clientAddr in self.clients:
-            self.clients[clientAddr].newestSeqId = newSeqId
+        with self.clientsLock:
+            if clientAddr in self.clients:
+                self.clients[clientAddr].newestSeqId = newSeqId
         
     def getFragBuffer(self, clientAddr):
-        return self.clients[clientAddr].fragBuffer
+        with self.clientsLock:
+            return self.clients[clientAddr].fragBuffer
     
     def getEcKey(self, clientAddr):
-        return self.clients[clientAddr].ecKey
+        with self.clientsLock:
+            return self.clients[clientAddr].ecKey
     
     def getSequenceId(self, clientAddr):
-        return self.clients[clientAddr].sequenceId
+        with self.clientsLock:
+            return self.clients[clientAddr].sequenceId
     
     def getQueue(self, clientAddr):
-        return self.clients[clientAddr].queue
+        with self.clientsLock:
+            return self.clients[clientAddr].queue
     
     def getSequenceIdLock(self, clientAddr):
-        return self.clients[clientAddr].sequenceIdLock
+        with self.clientsLock:
+            return self.clients[clientAddr].sequenceIdLock
     
     def incrementSequenceId(self, clientAddr) -> None:
         with self.getSequenceIdLock(clientAddr):
-            self.clients[clientAddr].sequenceId += 1
-               
+            with self.clientsLock:
+                self.clients[clientAddr].sequenceId += 1
+            
+    def getHeartbeat(self, clientAddr) -> datetime:
+        with self.clientsLock:
+            return self.clients[clientAddr].heartbeat
+    
+    def setHeartbeat(self, clientAddr, v:datetime) -> None:
+        with self.clientsLock:
+            self.clients[clientAddr].heartbeat = v
+            
+    def regenerateEcKey(self, clientAddr) -> None:
+        with self.clientsLock:
+            self.clients[clientAddr].regenerateEcKey()
+            
+    def checkClientExists(self, clientAddr) -> bool:
+        with self.clientsLock:
+            return clientAddr in self.clients
+        
+    def validateHandshake(self, clientAddr, finished:bytes):
+        with self.clientsLock:
+            return self.clients[clientAddr].validateHandshake(finished)
+
     def listen(self):
         print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
         while self.isRunning.is_set():
             p, addr = self.receivePacket()
-            if addr in self.clients: # client exists
-                if self.getHandshake(addr): # client handshake complete => allow all packet types
-                    if p.packet_type == packet.Type.AUTH or True:# random.randint(0,10): # TODO: NOTE: FOR TESTING - REMOVE!!!
+            if p != None and addr != None:
+                if self.checkClientExists(addr): # client exists
+                    self.setHeartbeat(addr, datetime.now())
+                    if self.getHandshake(addr): # client handshake complete => allow all packet types
                         self.receive(p, addr)
                     else:
-                        print(f"\t{bcolors.FAIL}{bcolors.BOLD}--DEBUG DROPPED PACKET {p}--{bcolors.ENDC}")
+                        if p.packet_type in (packet.Type.AUTH, packet.Type.ACK): # client handshake incomplete => drop all non-AUTH | non-ACK packets
+                            self.receive(p, addr)
                 else:
-                    if p.packet_type in (packet.Type.AUTH, packet.Type.ACK): # client handshake incomplete => drop all non-AUTH | non-ACK packets
+                    if p.packet_type == packet.Type.AUTH: # client not exists => drop all non-AUTH packets
                         self.receive(p, addr)
-            else:
-                if p.packet_type == packet.Type.AUTH: # client not exists => drop all non-AUTH packets
-                    self.receive(p, addr)
-                else:
-                    print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
+                    else:
+                        print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
         else:
             print("| listen thread stopping...")
             
-    def makeClient(self, addr, cert):
-        c = Node(addr, cert=cert, sendLock=self.sendLock, socket=self.socket)
+    def heartbeat(self):
+        # print("HEART")
+        while self.isRunning.is_set():
+            time.sleep(HEARTBEAT_MIN_TIME)
+            # print("HEART BEATING")
+            with self.clientsLock:
+                clients = [k for k in self.clients.keys()]
+            for clientAddr in clients:
+                heartbeat = self.getHeartbeat(clientAddr)
+                delta = (datetime.now()-heartbeat).seconds
+                if delta > HEARTBEAT_MAX_TIME:
+                    # send heartbeat timeout error
+                    self.removeClient(clientAddr, debugStr=f"due to heartbeat timeout (last contact was {heartbeat})")
+                elif delta > HEARTBEAT_MIN_TIME:
+                    self.queueHeartbeat(clientAddr, heartbeat=False)
+            # print("HEART STOPPING")
+                    
+    def makeClient(self, clientAddr, cert):
+        c = Node(clientAddr, cert=cert, sendLock=self.sendLock, socket=self.socket)
         c.outboundThread.start()
-        return c
+        with self.clientsLock:
+            self.clients[clientAddr] = c
+    
+    def removeClient(self, clientAddr, debugStr=""):
+        with self.clientsLock:
+            print(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
+            del self.clients[clientAddr]
+    
+    # misc
+    def startThreads(self):
+        super().startThreads()
+        self.heartbeatThread.start()
         
 
 if __name__ == "__main__":

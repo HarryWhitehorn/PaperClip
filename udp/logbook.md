@@ -76,3 +76,6 @@
 - Encode last 16 bits into `ACK` packet (such that `[ack_id-1, ack_id-2, ack_id-3...ack_id-17]`).
     - On receiving an `ACK` packet the `Node` will now set all bits from the `ack_bits`, in addition to the `ack_id`, to `True` (mitigating against lost `ACK` packets).
 - Tested both whole `Packet` loss (incoming) and `ACK` loss (outgoing) and validated that the sending acted accordingly (i.e. resend lost `Packets` and used `ack_bits` for lost `ACKs`).
+- Implemented `Heartbeat` packet.
+    - `Heartbeat` is sent with `heartbeat=False` to indicate `PING`. A `PING` **MUST** be replied to with a `Heartbeat` packet with `heartbeat=True` to indicate `PONG`.
+    - The sever polls all clients every `HEARTBEAT_MIN_TIME` (30 seconds) and either sends a `PING` `if heartbeat delta > HEARTBEAT_MIN_TIME` **OR** drops `client` `if heartbeat delta > HEARTBEAT_MAX_TIME` (60 seconds) where `heartbeat delta = now() - last contact` in seconds.

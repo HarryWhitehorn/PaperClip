@@ -19,6 +19,15 @@ import os
 #         t.join()
 #     assert n.sequenceId == 16960, n.sequenceId
 
+# Heartbeat
+def testHeartbeatPacket():
+    h = genRandAttr(Type.HEARTBEAT)
+    p = HeartbeatPacket(*h)
+    p.heartbeat = True
+    eP = p.pack(p)
+    dP = unpack(eP)
+    assert p == dP, (p, eP, dP)
+
 # frag
 def testDefrag():
     h = genRandAttr()
@@ -204,6 +213,7 @@ if __name__ == "__main__":
         testAuth()
         testPacketEncryption()
         testDataCompress()
-    testDefrag()
+        testDefrag()
+    testHeartbeatPacket()
     print(f"\n{'-'*5}END test(s){'-'*5}")
     

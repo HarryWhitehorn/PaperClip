@@ -9,10 +9,11 @@ class Client(Node):
     targetAddr: tuple[str,int]
     rsaKey: RSAPrivateKey
 
-    def __init__(self, addr, targetAddr):
+    def __init__(self, addr, targetAddr, _callback=None):
         self.targetAddr = targetAddr
         self.rsaKey = auth.generateRsaKey()
-        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey))
+        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey), _callback=_callback)
+        self.regenerateEcKey()
         self.bind(self.addr)
     
     @property
@@ -64,12 +65,15 @@ if __name__ == "__main__":
     from node import S_HOST, S_PORT, C_HOST, C_PORT
     from time import sleep
     import os
-    portOffset = 0#int(input("offset: "))
-    c = Client((C_HOST,C_PORT+portOffset), (S_HOST, S_PORT))
+    
+    def testCallback(data):
+        pass
+        
+    portOffset = int(input("offset: "))
+    c = Client((C_HOST,C_PORT+portOffset), (S_HOST, S_PORT), _callback=testCallback)
     
     print("Press <enter> to kill client.")
     # c.mainloop()
-    
     # / TESTS
     # killServer()
     # testACK()
@@ -82,13 +86,13 @@ if __name__ == "__main__":
     c.connect()
     # c.startThreads()
     # input(">")
-    flags=packet.lazyFlags(packet.Flag.RELIABLE)#, packet.Flag.FRAG)#packet.Flag.RELIABLE, packet.Flag.CHECKSUM, packet.Flag.ENCRYPTED)#, packet.Flag.COMPRESSED)#, packet.Flag.FRAG) #packet.Flag.RELIABLE, packet.Flag.ENCRYPTED)
+    flags=packet.lazyFlags(packet.Flag.RELIABLE, packet.Flag.ENCRYPTED)#, packet.Flag.FRAG)#packet.Flag.RELIABLE, packet.Flag.CHECKSUM, packet.Flag.ENCRYPTED)#, packet.Flag.COMPRESSED)#, packet.Flag.FRAG) #packet.Flag.RELIABLE, packet.Flag.ENCRYPTED)
     with open(r"udp/shakespeare.txt", "rb") as f:
         data = f.read()
     data = data[:len(data)//4]
     # c.queueACK(c.targetAddr, c.sequenceId, flags=flags, data=b"Hello World")
     # for _ in range(2*(2**packet.ACK_BITS_SIZE//3)):
-    for i in range(50):
+    for i in range(10):
         c.queueDefault(c.targetAddr, flags=flags, data=f"HelloWorld{i}".encode())
     c.queueDefault(c.targetAddr, data=b"DONE")
     # /

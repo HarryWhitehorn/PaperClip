@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.x509 import Certificate
 import random
+from datetime import datetime
 
 class bcolors:
     HEADER = '\033[95m'
@@ -37,6 +38,7 @@ class Node:
     newestSeqId: int|None
     fragBuffer: dict[int,list[packet.Packet]]
     queue: Queue
+    heartbeat: datetime|None
     # id
     # rsaKey: RSAPrivateKey|None
     cert: Certificate|None
@@ -52,8 +54,10 @@ class Node:
     isRunning: Event
     # socket
     socket: Socket|None
+    # callback
+    _callback: None
     
-    def __init__(self, addr:tuple[str,int], cert:Certificate|None=None, sendLock:Lock=Lock(), socket:Socket|None=Socket(type=SOCK_DGRAM)) -> None:
+    def __init__(self, addr:tuple[str,int], cert:Certificate|None=None, sendLock:Lock=Lock(), socket:Socket|None=Socket(type=SOCK_DGRAM), _callback:None=None) -> None:
         self.addr = addr
         self.sequenceId = 0
         self.sentAckBits = [None for _ in range(2**packet.ACK_BITS_SIZE)]
@@ -65,7 +69,7 @@ class Node:
         # self.rsaKey = auth.generateRsaKey()
         self.cert = cert # auth.generateCertificate(self.rsaKey)
         # session
-        self.regenerateEcKey()
+        # self.regenerateEcKey()
         self.sessionKey = None
         self.handshake = False
         # threads
@@ -77,6 +81,8 @@ class Node:
         self.isRunning.set()
         # socket
         self.socket = socket
+        # callback
+        self._callback = _callback
     
     def bind(self, addr):
         self.socket.bind(addr)
@@ -157,11 +163,17 @@ class Node:
     def getSequenceId(self, addr:tuple[str, int]) -> int:
         return self.sequenceId
     
-    def getSequenceIdLock(self, addr):
+    def getSequenceIdLock(self, addr:tuple[str, int]) -> Lock:
         return self.sequenceIdLock
     
     def getQueue(self, addr:tuple[str, int]) -> Queue:
         return self.queue
+    
+    def getHeartbeat(self, addr:tuple[str, int]) -> datetime:
+        return self.heartbeat
+    
+    def setHeartbeat(self, addr:tuple[str, int], v:datetime) -> None:
+        self.heartbeat = v
     
     def regenerateEcKey(self) -> None:
         self.ecKey = auth.generateEcKey()
@@ -229,11 +241,19 @@ class Node:
     def _generateFinished(sessionKey):
         return auth.generateFinished(sessionKey, finishedLabel=b"node finished", messages=b"\x13") # TODO: give appropriate values for label and messages
     
+    def queueHeartbeat(self, addr, heartbeat, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
+        p = packet.HeartbeatPacket(sequence_id=self.getSequenceId(addr), flags=flags, heartbeat=heartbeat, data=data)
+        self.incrementSequenceId(addr)
+        self.queuePacket(addr, p)
+    
     # receives
     def receivePacket(self):
-        data, addr = self.socket.recvfrom(BUFFER_SIZE)
-        p = packet.unpack(data)
-        return p, addr
+        try:
+            data, addr = self.socket.recvfrom(BUFFER_SIZE)
+            p = packet.unpack(data)
+            return p, addr
+        except ConnectionResetError:
+            return None, None
     
     def receive(self, p, addr):
         if p != None:
@@ -246,11 +266,15 @@ class Node:
                         return self.receiveAck(p, addr)
                     case packet.Type.AUTH:
                         return self.receiveAuth(p, addr)
+                    case packet.Type.HEARTBEAT:
+                        return self.receiveHeartbeat(p, addr)
                     case _:
                         raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
     
     def receiveDefault(self, p:packet.Packet, addr):
         self.setNewestSeqId(addr, self.getNewerSeqId(self.getNewestSeqId(addr), p.sequence_id))
+        if self._callback:
+            self._callback(p.data)
         return (p,addr)
     
     def receiveAck(self, p:packet.AckPacket, addr):
@@ -265,6 +289,12 @@ class Node:
         
     def receiveAuth(self, p:packet.AuthPacket, addr):
         raise NotImplementedError(f"Node should not receive auth. A child class must overwrite.")
+        return (p, addr)
+    
+    def receiveHeartbeat(self, p:packet.HeartbeatPacket, addr):
+        if not p.heartbeat:
+            self.queueHeartbeat(addr, heartbeat=True)
+            pass
         return (p, addr)
         
     def listen(self):

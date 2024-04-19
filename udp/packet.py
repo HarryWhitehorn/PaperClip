@@ -22,6 +22,7 @@ class Type(Enum):
     DEFAULT = 0
     ACK = 1
     AUTH = 2
+    HEARTBEAT = 3
     
 class Flag(Enum):
     RELIABLE = 0
@@ -29,6 +30,10 @@ class Flag(Enum):
     COMPRESSED = 2
     ENCRYPTED = 3
     FRAG = 4
+    
+class Heartbeat(Enum):
+    PING = 0
+    PONG = 1
     
 def lazyFlags(*fs:list[Flag]) -> list[int]:
     flags = [0 for _ in range(FLAGS_SIZE)]
@@ -449,6 +454,40 @@ class AuthPacket(Packet):
     def unpack(cls, bytesP:bytes):
         *header, offset = cls._unpackHeader(bytesP)
         return cls(*header)
+    
+class HeartbeatPacket(Packet):
+    heartbeat: bool
+    def __init__(self, version: int = VERSION, packet_type: Type = Type.HEARTBEAT, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = None, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, heartbeat:bool=0, data: bytes | None = None) -> None:
+        super().__init__(version, Type.HEARTBEAT, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum, data)
+        self.heartbeat = heartbeat
+        
+    # encode / decode
+    @staticmethod
+    def encodeHeartbeat(heartbeat:bool) -> bytes:
+        return struct.pack("!?", heartbeat)
+    
+    @staticmethod
+    def decodeHeartbeat(heartbeat:bytes) -> bool:
+        return struct.unpack("!?", heartbeat)[0]
+    
+    @staticmethod
+    def encodeHeader(version: int, packet_type: Type, flags: list[int], sequence_id: int, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, heartbeat:bool=0) -> bytes:
+        header = Packet.encodeHeader(version, packet_type, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum)
+        heartbeat = HeartbeatPacket.encodeHeartbeat(heartbeat)
+        return header + heartbeat
+    
+    @staticmethod
+    def decodeHeader(header: bytes) -> tuple[int, Type, list[int], int, int | None, int | None, int | None, int | None, bool, int]:
+        *h, offset = Packet.decodeHeader(header)
+        heartbeat = HeartbeatPacket.decodeHeartbeat(header[offset:offset+1])
+        offset += 1
+        return *h, heartbeat, offset
+    
+    # pack / unpack
+    @classmethod
+    def _packHeader(cls, p) -> bytes:
+        header = cls.encodeHeader(p.version, p.packet_type, p.flags, p.sequence_id, p.fragment_id, p.fragment_number, p.init_vector, p.checksum, p.heartbeat)
+        return header
             
 def unpack(rawP):
     packet_type = Packet.decodeVersionType(rawP[0:1])[1]
@@ -458,7 +497,9 @@ def unpack(rawP):
         case Type.ACK:
             return AckPacket.unpack(rawP)
         case Type.AUTH:
-            return  AuthPacket.unpack(rawP)
+            return AuthPacket.unpack(rawP)
+        case Type.HEARTBEAT:
+            return HeartbeatPacket.unpack(rawP)
         case _:
             raise TypeError(f"Invalid packet type {packet_type}")
         
