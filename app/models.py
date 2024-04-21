@@ -1,19 +1,23 @@
 from enum import Enum
+from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
+from flask import current_app
+import jwt
+import datetime
 # from . import db
 
 db = SQLAlchemy()
 
-# flask login
-class User(UserMixin, db.Model):
-    user_id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(1000))
-    email = db.Column(db.String(100), unique=True)
-    password = db.Column(db.String(100))
+# # flask login
+# class User(UserMixin, db.Model):
+#     user_id = db.Column(db.Integer, primary_key=True)
+#     name = db.Column(db.String(1000))
+#     email = db.Column(db.String(100), unique=True)
+#     password = db.Column(db.String(100))
 
-    def get_id(self):
-        return self.user_id
+#     def get_id(self):
+#         return self.user_id
 
 # models
 class Friends(db.Model):
@@ -36,7 +40,7 @@ class Members(db.Model):
 class Account(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(255), unique=True, nullable=False)
-    password = db.Column(db.String(100), nullable=False)  # binary type?
+    password = db.Column(db.String(162), nullable=False)  # binary type?
     members = db.relationship("Members", backref="account", lazy=True)    
     # friends = db.relationship(
     #     "Account", secondary=friends, backref="account", lazy=True
@@ -44,6 +48,25 @@ class Account(db.Model):
     # scores = db.relationship(
     #     "Game", secondary=scores, backref="account", lazy=True
     # )
+    def hashPassword(self, password:str) -> None:
+        self.password = generate_password_hash(password)
+        
+    def verifyPassword(self, password:str) -> bool:
+        return check_password_hash(self.password, password)
+    
+    def generateToken(self, expiration:int=600) -> str:
+        data = {"id":self.id,"exp":datetime.datetime.now()+datetime.timedelta(seconds=expiration)}
+        token = jwt.encode(data, current_app.config['SECRET_KEY'], algorithm="HS256")
+        return token
+    
+    @staticmethod
+    def validateToken(token:str):
+        try:
+            data = jwt.decode(token, current_app.config['SECRET_KEY'], leeway=datetime.timedelta(seconds=10), algorithms=["HS256"])
+        except:
+            return False
+        account = Statement.getAccount(data.get("id"))
+        return account
 
 
 class Game(db.Model):
@@ -69,8 +92,16 @@ class Statement():
         return Game.query.filter_by(id=gameId).scalar()
     
     @staticmethod
+    def getGames():
+        return Game.query.all()
+    
+    @staticmethod
     def getLobby(lobbyId):
         return Lobby.query.filter_by(id=lobbyId).scalar()
+    
+    @staticmethod
+    def getLobbies():
+        return Lobby.query.all()
     
     @staticmethod
     def getLobbySize(lobbyId):
@@ -92,7 +123,16 @@ class Statement():
     
     # create
     @staticmethod
-    def createLobby(gameId,userId=None):
+    def createAccount(username:str, password:str) -> Account:
+        account = Account(username=username)
+        account.hashPassword(password)
+        db.session.add(account)
+        db.session.commit()
+        return account
+        
+    
+    @staticmethod
+    def createLobby(gameId,userId=None) -> int:
         lobby = Lobby(game_id=gameId)
         db.session.add(lobby)
         if userId != None:
@@ -114,6 +154,18 @@ class Statement():
         return lobby.id
     
     # find
+    @staticmethod
+    def findAccount(username) -> Account|None:
+        return Account.query.filter_by(username=username).scalar()
+    
+    @staticmethod
+    def validateToken(token) -> Account|None:
+        return Account.validateToken(token)
+    
+    @staticmethod
+    def findGame(gameName:str):
+        return Game.query.filter_by(name=gameName).scalar()
+    
     @staticmethod
     def findLobbies(gameId):
         lobbies = Lobby.query.filter_by(game_id=gameId)
