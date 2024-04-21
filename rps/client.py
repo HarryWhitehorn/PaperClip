@@ -12,13 +12,13 @@ class Client:
     recvQueue: Queue
     udpClient: UdpClient
     score: int
+    onReceiveData: None
     
-    def __init__(self, addr, targetAddr):
+    def __init__(self, addr, targetAddr, onReceiveData=None):
         self.isRunning = True
         self.recvQueue = Queue()
         self.score = 0
-        self.choice = None
-        self.choiceEvent = Event()
+        self.onReceiveData = onReceiveData
         self.udpClient = UdpClient(addr, targetAddr, onConnect=self.onConnect, onReceiveData=self.receive)
         
     def send(self, addr, data:json):
@@ -26,6 +26,8 @@ class Client:
     
     def receive(self, addr, data:bytes):
         self.recvQueue.put((addr,self.decodeData(data)))
+        if self.onReceiveData:
+            self.onReceiveData(addr, data)
         
     @staticmethod
     def encodeData(data:dict) -> bytes:

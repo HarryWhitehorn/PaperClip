@@ -15,12 +15,18 @@ class Server:
     players: dict[tuple[str, int], int]
     playersLock: Lock
     udpServer: UdpServer
+    onClientJoin: None
+    onClientLeave: None
+    onReceiveData: None
     
-    def __init__(self, addr):
+    def __init__(self, addr, onClientJoin=None, onClientLeave=None, onReceiveData=None):
         self.isRunning = True
         self.recvQueue = Queue()
         self.players = {}
         self.playersLock = Lock()
+        self.onClientJoin = onClientJoin
+        self.onClientLeave = onClientLeave
+        self.onReceiveData = onReceiveData
         self.udpServer = UdpServer(addr, maxClients=MAX_PLAYERS, onClientJoin=self.playerJoin, onClientLeave=self.playerLeave, onReceiveData=self.receive)
         
     def send(self, addr, data:json):
@@ -28,6 +34,8 @@ class Server:
     
     def receive(self, addr, data:bytes):
         self.recvQueue.put((addr,self.decodeData(data)))
+        if self.onReceiveData:
+            self.onReceiveData(addr, data)
         
     @staticmethod
     def encodeData(data:json):
@@ -92,10 +100,14 @@ class Server:
     def playerJoin(self, addr):
         with self.playersLock:
             self.players[addr] = 0
+        if self.onClientJoin:
+            self.onClientJoin(addr)
         
     def playerLeave(self, addr):
         with self.playersLock:
             del self.players[addr]
+        if self.onClientLeave:
+            self.onClientLeave
             
     def getPlayers(self):
         with self.playersLock:
