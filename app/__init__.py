@@ -1,7 +1,5 @@
-from flask import Flask, url_for
-from flask_login import LoginManager
+from flask import Flask
 from .models import *
-
 
 def create_app():
     app = Flask(__name__)
@@ -16,18 +14,6 @@ def create_app():
     
     with app.app_context():
         db.create_all()
-
-    login_manager = LoginManager()
-    login_manager.login_view = 'auth.login'
-    login_manager.init_app(app)
-
-    # from .models import Users
-    @login_manager.user_loader
-    def load_user(user_id):
-        return User.query.get(int(user_id))
-
-    from .auth import auth as auth_blueprint
-    app.register_blueprint(auth_blueprint)
 
     from .main import main as main_blueprint
     app.register_blueprint(main_blueprint)

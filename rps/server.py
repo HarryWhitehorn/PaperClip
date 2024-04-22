@@ -19,11 +19,7 @@ class Server:
     onClientLeave: None
     onReceiveData: None
     
-<<<<<<< Updated upstream
-    def __init__(self, addr, onClientJoin=None, onClientLeave=None, onReceiveData=None):
-=======
     def __init__(self, addr, rsaKey:None=None, onClientJoin=None, onClientLeave=None, onReceiveData=None):
->>>>>>> Stashed changes
         self.isRunning = True
         self.recvQueue = Queue()
         self.players = {}
@@ -31,11 +27,7 @@ class Server:
         self.onClientJoin = onClientJoin
         self.onClientLeave = onClientLeave
         self.onReceiveData = onReceiveData
-<<<<<<< Updated upstream
-        self.udpServer = UdpServer(addr, maxClients=MAX_PLAYERS, onClientJoin=self.playerJoin, onClientLeave=self.playerLeave, onReceiveData=self.receive)
-=======
         self.udpServer = UdpServer(addr, maxClients=MAX_PLAYERS, rsaKey=rsaKey, onClientJoin=self.playerJoin, onClientLeave=self.playerLeave, onReceiveData=self.receive)
->>>>>>> Stashed changes
         
     def send(self, addr, data:json):
         self.udpServer.queueDefault(addr, data=self.encodeData(data))
@@ -115,9 +107,6 @@ class Server:
         with self.playersLock:
             del self.players[addr]
         if self.onClientLeave:
-<<<<<<< Updated upstream
-            self.onClientLeave
-=======
             self.onClientLeave(addr)
             
     def isNotFull(self):
@@ -125,7 +114,6 @@ class Server:
     
     def isEmpty(self):
         return self.udpServer.isEmpty()
->>>>>>> Stashed changes
             
     def getPlayers(self):
         with self.playersLock:

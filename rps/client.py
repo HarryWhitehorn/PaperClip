@@ -1,9 +1,6 @@
 from threading import Event, Thread
 from queue import Queue
-<<<<<<< Updated upstream
 import random
-=======
->>>>>>> Stashed changes
 import json
 
 from udp.client import Client as UdpClient
@@ -17,20 +14,12 @@ class Client:
     score: int
     onReceiveData: None
     
-<<<<<<< Updated upstream
-    def __init__(self, addr, targetAddr, onReceiveData=None):
-=======
     def __init__(self, addr, targetAddr, rsaKey=None, userId:int|str|None=None, username:str|None=None, onReceiveData=None):
->>>>>>> Stashed changes
         self.isRunning = True
         self.recvQueue = Queue()
         self.score = 0
         self.onReceiveData = onReceiveData
-<<<<<<< Updated upstream
-        self.udpClient = UdpClient(addr, targetAddr, onConnect=self.onConnect, onReceiveData=self.receive)
-=======
         self.udpClient = UdpClient(addr, targetAddr, rsaKey=rsaKey, userId=userId, username=username, onConnect=self.onConnect, onReceiveData=self.receive)
->>>>>>> Stashed changes
         
     def send(self, addr, data:json):
         self.udpClient.queueDefault(addr, data=self.encodeData(data))
@@ -57,19 +46,12 @@ class Client:
     def mainloop(self):
         try:
             while self.isRunning:
-<<<<<<< Updated upstream
-                try:
-                    choice = int(input("Choice R[0], P[1], S[2]: "))
-                except ValueError:
-                    pass
-=======
                 choice = None
                 while choice == None:
                     try:
                         choice = int(input("Choice R[0], P[1], S[2]: "))
                     except ValueError:
                         pass
->>>>>>> Stashed changes
                 self.send(self.udpClient.targetAddr, {"choice":choice})
                 addr, data = self.recvQueue.get()
                 print(data)
