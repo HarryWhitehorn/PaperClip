@@ -1,5 +1,9 @@
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+import requests
 import socket
+import base64
+import json
+import random
 
 from . import bcolors, node, packet, auth
 
@@ -9,13 +13,13 @@ class Client(node.Node):
     onConnect: None
     onDisconnect: None
     
-    def __init__(self, addr, targetAddr, onConnect=None, onDisconnect=None, onReceiveData=None):
+    def __init__(self, addr, targetAddr, rsaKey:RSAPrivateKey|None=None, userId:int|str|None=None, username:str|None=None, onConnect=None, onDisconnect=None, onReceiveData=None):
         self.targetAddr = targetAddr
-        self.rsaKey = auth.generateRsaKey()
+        self.rsaKey = rsaKey if rsaKey != None else auth.generateRsaKey()
         self.onConnect = onConnect
         self.onDisconnect = onDisconnect
         s = socket.socket(type=socket.SOCK_DGRAM)
-        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey), socket=s, onReceiveData=onReceiveData)
+        super().__init__(addr, cert=auth.generateUserCertificate(self.rsaKey, userId, username), socket=s, onReceiveData=onReceiveData)
         self.regenerateEcKey()
         self.bind(self.addr)
     
@@ -47,7 +51,7 @@ class Client(node.Node):
                     print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
                     authPacket = p
                     self.sessionKey = auth.generateSessionKey(self.ecKey, p.public_key)
-                    if not node.Node.validateCert(p.certificate):
+                    if not self.validateCertificate(p.certificate):
                         raise ValueError(f"Invalid peer cert {p.certificate}")
                     self.queueFinished(self.targetAddr, p.sequence_id, self.sessionKey)
                 elif p.packet_type == packet.Type.ACK:
@@ -69,6 +73,18 @@ class Client(node.Node):
                 self.onConnect(addr)
         else:
             raise ValueError(f"Local finished value {node.Node._generateFinished(self.sessionKey)} does not match peer finished value {ackPacket.data}")
+        
+    # auth
+    def validateCertificate(self, certificate): 
+        url = f"http://{self.targetHost}:5000/auth/certificate/validate"
+        headers = {"Content-Type":"application/json"}
+        certificate = base64.encodebytes(auth.getDerFromCertificate(certificate)).decode()
+        data = {"certificate": certificate}
+        r = requests.get(url, headers=headers, data=json.dumps(data))
+        if r.status_code == 200:
+            return r.json()["valid"]
+        else:
+            return False
     
 if __name__ == "__main__":
     from time import sleep

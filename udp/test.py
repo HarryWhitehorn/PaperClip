@@ -111,7 +111,7 @@ def genRandAttr(t=Type.DEFAULT):
     return h
 
 def testAuth():
-    pK, c = auth.generateEcKey().public_key(), auth.generateCertificate(auth.generateRsaKey())
+    pK, c = auth.generateEcKey().public_key(), auth.generateUserCertificate(auth.generateRsaKey())
     pKS, cS = AuthPacket.getPublicKeyBytesSize(pK), AuthPacket.getCertificateByteSize(c)
     h = (*genRandAttr(Type.AUTH), pKS, pK, cS, c)
     # static test

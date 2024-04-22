@@ -1,13 +1,17 @@
 from cryptography.hazmat.primitives import serialization, hashes, padding, hmac
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.hazmat.primitives.asymmetric import padding as aPadding
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.x509.oid import NameOID
+from cryptography.exceptions import InvalidSignature 
 from cryptography import x509
 import datetime
 import os
 
 FILE_PATH = r"udp/store/"
+ORG_NAME = "Paperclip"
+COMMON_NAME = "127.0.0.1"
 
 def generateRsaKey():
     key = rsa.generate_private_key(
@@ -16,26 +20,48 @@ def generateRsaKey():
     )
     return key
 
-def storeKey(key, filename, password):
-    with open(f"{FILE_PATH}{filename}.pem", "wb") as f:
-        f.write(key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.BestAvailableEncryption(password),
-        ))
-        
-def loadKey(filename, password):
-    with open(f"{FILE_PATH}{filename}.pem", "rb") as f:
-        return serialization.load_pem_private_key(f.read(), password)
+def getDerFromRsaPrivate(key:rsa.RSAPrivateKey,password:bytes) -> bytes:
+    der = key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.BestAvailableEncryption(password)
+    )
+    return der
+
+def getRsaPrivateFromDer(data:bytes, password:bytes) -> rsa.RSAPrivateKey:
+    key = serialization.load_der_private_key(data,password=password)
+    return key
+
+def getDerFromRsaPublic(key:rsa.RSAPublicKey) -> bytes:
+    der = key.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return der
     
-def generateCertificate(key):
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "My Company"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "mysite.com"),
-    ])
+def getRsaPublicFromDer(data:bytes) -> rsa.RSAPublicKey:
+    key = serialization.load_der_public_key(data)
+    return key
+
+# def storeKey(key, filename, password):
+#     with open(f"{FILE_PATH}{filename}.pem", "wb") as f:
+#         f.write(key.private_bytes(
+#             encoding=serialization.Encoding.PEM,
+#             format=serialization.PrivateFormat.TraditionalOpenSSL,
+#             encryption_algorithm=serialization.BestAvailableEncryption(password),
+#         ))
+        
+# def loadKey(filename, password):
+#     with open(f"{FILE_PATH}{filename}.pem", "rb") as f:
+#         return serialization.load_pem_private_key(f.read(), password)
+    
+def generateUserCertificate(key, userId:int|str|None=None, username:str|None=None):
+    name = [x509.NameAttribute(NameOID.ORGANIZATION_NAME, ORG_NAME),x509.NameAttribute(NameOID.COMMON_NAME, COMMON_NAME)]
+    if userId != None:
+        name.append(x509.NameAttribute(NameOID.USER_ID, str(userId)))
+    if username != None:    
+        name.append(x509.NameAttribute(NameOID.PSEUDONYM, username))
+    subject = issuer = x509.Name(name)
     cert = x509.CertificateBuilder().subject_name(
         subject
     ).issuer_name(
@@ -47,24 +73,46 @@ def generateCertificate(key):
     ).not_valid_before(
         datetime.datetime.now(datetime.timezone.utc)
     ).not_valid_after(
-        # Our certificate will be valid for 10 days
-        datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=10)
+        datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
     ).add_extension(
         x509.SubjectAlternativeName([x509.DNSName("localhost")]),
         critical=False,
-    # Sign our certificate with our private key
     ).sign(key, hashes.SHA256())
     
     return cert
+
+def getUserCertificateAttributes(certificate:x509.Certificate) -> list:
+    accountId = certificate.subject.get_attributes_for_oid(NameOID.USER_ID)
+    accountId = accountId[0].value if len(accountId) > 0 else None
+    username = certificate.subject.get_attributes_for_oid(NameOID.PSEUDONYM)
+    username = username[0].value if len(username) > 0 else None
+    return {"account-id":accountId, "username":username}
+
+def validateCertificate(certificate:x509.Certificate, publicKey:rsa.RSAPublicKey):
+    # period
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if not (certificate.not_valid_before_utc <= now <= certificate.not_valid_after_utc):
+        return False
+    # signature
+    try:
+        publicKey.verify(
+            certificate.signature,
+            certificate.tbs_certificate_bytes,
+            aPadding.PKCS1v15(),
+            certificate.signature_hash_algorithm
+        )
+    except InvalidSignature:
+        return False
+    return True
     
-def storeCertificate(cert, filename):
-    # Write our certificate out to disk.
-    with open(f"{FILE_PATH}{filename}.pem", "wb") as f:
-        f.write(cert.public_bytes(serialization.Encoding.PEM))
+    
+# def storeCertificate(cert, filename):
+#     with open(f"{FILE_PATH}{filename}.pem", "wb") as f:
+#         f.write(cert.public_bytes(serialization.Encoding.PEM))
         
-def loadCertificate(filename):
-    with open(f"{FILE_PATH}{filename}.pem", "rb") as f:
-        return x509.load_pem_x509_certificate(f.read())
+# def loadCertificate(filename):
+#     with open(f"{FILE_PATH}{filename}.pem", "rb") as f:
+#         return x509.load_pem_x509_certificate(f.read())
     
 def generateEcKey():
     key = ec.generate_private_key(
@@ -89,7 +137,6 @@ def getDerFromCertificate(certificate):
 def getCertificateFromDer(certificateDer):
     return x509.load_der_x509_certificate(certificateDer)
 
-    
 def generateSessionKey(localKey, peerKey):
     sessionSecret = localKey.exchange(ec.ECDH(), peerKey)
     sessionKey = HKDF(

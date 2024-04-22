@@ -4,14 +4,19 @@ from threading import Thread, Lock, Event
 from socket import socket as Socket
 from socket import SOCK_DGRAM
 from datetime import datetime
-from queue import Queue
+from queue import Queue, Empty
+import requests
+import base64
 import random
 import time
+import json
 
 from . import bcolors, packet, auth
 
 BUFFER_SIZE = 1024
-SLEEP_TIME = 0.1
+SEND_SLEEP_TIME = 0.1
+QUEUE_TIMEOUT = 10
+SOCKET_TIMEOUT = 20
 ACK_RESET_SIZE = (2**packet.ACK_BITS_SIZE) // 2
 
 class Node:
@@ -65,6 +70,7 @@ class Node:
         self.isRunning.set()
         # socket
         self.socket = socket
+        self.socket.settimeout(SOCKET_TIMEOUT)
         # callback
         self.onReceiveData = onReceiveData
     
@@ -170,18 +176,21 @@ class Node:
         
     def sendQueue(self):
         while self.isRunning.is_set():
-            addr, p = self.queue.get()
-            if p.flags[packet.Flag.RELIABLE.value]:
-                if self.getSentAckBit(addr, p):
-                    continue
+            try:
+                addr, p = self.queue.get(timeout=QUEUE_TIMEOUT)
+                if p.flags[packet.Flag.RELIABLE.value]:
+                    if self.getSentAckBit(addr, p):
+                        continue
+                    else:
+                        self.sendPacket(addr, p)
+                        self.queue.task_done()
+                        self.queue.put((addr,p))
                 else:
                     self.sendPacket(addr, p)
                     self.queue.task_done()
-                    self.queue.put((addr,p))
-            else:
-                self.sendPacket(addr, p)
-                self.queue.task_done()
-            time.sleep(SLEEP_TIME)
+                time.sleep(SEND_SLEEP_TIME)
+            except Empty:
+                pass # check still running
         else:
             print("| sendQueue thread stopping...")
             
@@ -237,6 +246,8 @@ class Node:
             p = packet.unpack(data)
             return p, addr
         except ConnectionResetError:
+            return None, None
+        except TimeoutError:
             return None, None
     
     def receive(self, p, addr):
@@ -378,14 +389,16 @@ class Node:
         self.inboundThread.start()
         self.outboundThread.start()
                    
-    @staticmethod
-    def validateCert(cert):
-        # TODO: valid cert check
+    def validateCertificate(self, certificate):
+        # overwrite
         return True
     
     def validateHandshake(self, finished):
         self.handshake = Node._generateFinished(self.sessionKey) == finished
         return self.handshake
+    
+    def quit(self):
+        self.isRunning.clear()
             
     
 if __name__ == "__main__":
