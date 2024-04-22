@@ -1,14 +1,3 @@
-<<<<<<< Updated upstream
-from threading import Thread
-
-class Lobby:
-    members: list[int]
-    severThread: Thread
-    port: int
-    
-    def __init__(self, port):
-        pass
-=======
 from threading import Thread, Lock
 import datetime
 import time
@@ -16,7 +5,7 @@ import time
 from udp.server import Server
 from rps.server import Server as RpsSever
 
-PRUNE_TIME = 26
+PRUNE_TIME = 58
 
 class Lobby:
     id: int
@@ -178,4 +167,3 @@ class LobbyHandler:
                     print(f"DELETING LOBBY {lobby} due to PRUNE ({lobby._heartbeatDelta()})")
                     self.deleteLobby(lobby.addr)
             time.sleep(PRUNE_TIME)
->>>>>>> Stashed changes

@@ -1,19 +1,3 @@
-<<<<<<< Updated upstream
-from flask import Blueprint, redirect, render_template, request, url_for, abort, jsonify, g
-from flask_httpauth import HTTPBasicAuth
-from . import Statement
-
-main = Blueprint("main", __name__)
-auth = HTTPBasicAuth()
-=======
-<<<<<<< Updated upstream
-from flask import Blueprint, redirect, render_template, request, url_for
-from flask_login import login_required, current_user
-import json
-from . import db, Statement
-
-main = Blueprint("main", __name__)
-=======
 from flask import Blueprint, redirect, render_template, request, url_for, abort, jsonify, g
 from flask_httpauth import HTTPBasicAuth
 from . import Statement
@@ -25,7 +9,6 @@ main = Blueprint("main", __name__)
 auth = HTTPBasicAuth()
 rsaKey = udp.auth.generateRsaKey()
 lobbyHandler = LobbyHandler(rsaKey=rsaKey)
->>>>>>> Stashed changes
 
 @auth.verify_password
 def verifyPassword(username, password):
@@ -36,10 +19,6 @@ def verifyPassword(username, password):
             return False
     g.account = account
     return True
-<<<<<<< Updated upstream
-=======
->>>>>>> Stashed changes
->>>>>>> Stashed changes
 
 # Index
 @main.route("/")
@@ -58,84 +37,6 @@ def createAccount():
     account = Statement.createAccount(username, password)
     return jsonify({"account-id":account.id, "username":account.username}), 201
 
-<<<<<<< Updated upstream
-@main.route("/auth/token")
-@auth.login_required
-def getAuthToken():
-    token = g.account.generateToken()
-    return jsonify({"token": token})
-
-@main.route("/auth/test")
-@auth.login_required
-def authTest():
-    return jsonify({"hello":g.account.username})
-=======
-<<<<<<< Updated upstream
-# Errors
-@main.route("/error")
-def error():
-    # TODO: implement errors fully
-    errorCode = "404"
-    errorMessage = "Not Found: Requested file was not found"
-    return render_template("error.html", errorCode=errorCode, errorMessage=errorMessage, danger=True)
-
-<<<<<<< Updated upstream
-@main.route("/lobby/<int:lobbyId>")
-def match(lobbyId):
-    data = _JsonLobby(lobbyId)
-    return data
->>>>>>> Stashed changes
-
-# game
-@main.route("/games/")
-@auth.login_required
-def getGames():
-    return jsonify({game.id:game.name for game in Statement.getGames()})
-
-@main.route("/lobby/")
-@auth.login_required
-def getLobbies():
-    lobbies = Statement.getLobbies()
-    games = {game.id:game.name for game in Statement.getGames()}
-    data = lambda lobby: {"game":{"game-id":lobby.game_id, "game-name":games[lobby.game_id]},"size":Statement.getLobbySize(lobby.id),"is-full":Statement.getIsLobbyFree(lobby.id)}
-    return jsonify({lobby.id:data(lobby) for lobby in lobbies})
-
-@main.route("/lobby/create", methods=["POST"])
-@auth.login_required
-def createLobby():
-    gameId = request.json.get("game-id")
-    gameName = request.json.get("game-name")
-    if not (gameId or gameName): # check args
-        abort(400) # missing args
-    game = None
-    if gameId: # check gameId not null
-        game = Statement.getGame(gameId)
-    if not game: # check gameId null 
-        if gameName: # check gameName not null
-            game = Statement.findGame(gameName)
-    if not game: # check game null
-        abort(404) # no game found
-    lobbyId = Statement.createLobby(game.id)
-    return jsonify({"lobby-id":lobbyId}), 201
-
-<<<<<<< Updated upstream
-@main.route("/lobby/join", methods=["POST"])
-@auth.login_required
-def joinLobby():
-    lobbyId = request.json.get("lobby-id")
-    if not lobbyId:
-        abort(400)
-    return jsonify({"lobby-id":Statement.joinLobby(lobbyId, g.account.id)}), 201
-=======
-@main.route("/sandbox")
-def sandbox():
-    print("snad")
-    return "snad"
-
-def _JsonLobby(lobbyId):
-    return {"lobby":f"{Statement.getLobby(lobbyId)}", "members":f"{Statement.getMembers(lobbyId)}"}
-=======
-=======
 @main.route("/auth/token")
 @auth.login_required
 def getAuthToken():
@@ -273,7 +174,3 @@ def addFriend():
 def getFriendLobbies():
     friends = Statement.getFriends(g.account)
     # lobbies = Statement.findLobby()
-    
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
