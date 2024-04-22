@@ -14,12 +14,12 @@ class Client:
     score: int
     onReceiveData: None
     
-    def __init__(self, addr, targetAddr, onReceiveData=None):
+    def __init__(self, addr, targetAddr, rsaKey=None, userId:int|str|None=None, username:str|None=None, onReceiveData=None):
         self.isRunning = True
         self.recvQueue = Queue()
         self.score = 0
         self.onReceiveData = onReceiveData
-        self.udpClient = UdpClient(addr, targetAddr, onConnect=self.onConnect, onReceiveData=self.receive)
+        self.udpClient = UdpClient(addr, targetAddr, rsaKey=rsaKey, userId=userId, username=username, onConnect=self.onConnect, onReceiveData=self.receive)
         
     def send(self, addr, data:json):
         self.udpClient.queueDefault(addr, data=self.encodeData(data))
@@ -46,10 +46,12 @@ class Client:
     def mainloop(self):
         try:
             while self.isRunning:
-                try:
-                    choice = int(input("Choice R[0], P[1], S[2]: "))
-                except ValueError:
-                    pass
+                choice = None
+                while choice == None:
+                    try:
+                        choice = int(input("Choice R[0], P[1], S[2]: "))
+                    except ValueError:
+                        pass
                 self.send(self.udpClient.targetAddr, {"choice":choice})
                 addr, data = self.recvQueue.get()
                 print(data)

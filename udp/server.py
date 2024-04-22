@@ -1,7 +1,10 @@
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from threading import Thread, Lock, Event
 from datetime import datetime
+import requests
+import base64
 import socket
+import json
 import time
 
 from . import bcolors, node, packet, auth
@@ -20,18 +23,18 @@ class Server(node.Node):
     onClientLeave: None
     maxClients: int
     
-    def __init__(self, addr, maxClients:int=MAX_CLIENTS, onClientJoin=None, onClientLeave=None, onReceiveData=None):
+    def __init__(self, addr, maxClients:int=MAX_CLIENTS, rsaKey:RSAPrivateKey|None=None, onClientJoin=None, onClientLeave=None, onReceiveData=None):
         self.clients = {}
         self.clientsLock = Lock()
         self.clientDeleteEvent = Event()
         self.clientDeleteEvent.set()
-        self.rsaKey = auth.generateRsaKey()
+        self.rsaKey = rsaKey if rsaKey != None else auth.generateRsaKey()
         self.heartbeatThread = Thread(target=self.heartbeat, daemon=True)
         self.onClientJoin = onClientJoin
         self.onClientLeave = onClientLeave
         self.maxClients = maxClients
         s = socket.socket(type=socket.SOCK_DGRAM)
-        super().__init__(addr, cert=auth.generateCertificate(self.rsaKey), socket=s, onReceiveData=onReceiveData)
+        super().__init__(addr, cert=auth.generateUserCertificate(self.rsaKey), socket=s, onReceiveData=onReceiveData)
         self.bind(self.addr)
             
     def receiveDefault(self, p, addr):
@@ -54,9 +57,9 @@ class Server(node.Node):
                  
     def receiveAuth(self, p:packet.AuthPacket, addr):
         if not addr in self.clients: # new client
-            if self.getClientLength() < self.maxClients: # check space
+            if self.isNotFull(): # check space
                 print(f"{bcolors.WARNING}# Handshake with {addr} starting.{bcolors.ENDC}")
-                if not node.Node.validateCert(p.certificate):
+                if not self.validateCertificate(p.certificate):
                     raise ValueError(f"Invalid peer cert {p.certificate}")
                 else:
                     self.makeClient(addr, p.certificate)
@@ -73,7 +76,7 @@ class Server(node.Node):
         if addr in self.clients:
             if self.getSessionKey(addr) !=  sessionKey: # new client sessionKey
                 print(f"{bcolors.WARNING}# Handshake with {addr} reset.{bcolors.ENDC}")
-                if not node.Node.validateCert(p.certificate):
+                if not self.validateCertificate(p.certificate):
                     raise ValueError(f"Invalid peer cert {p.certificate}")
                 else:
                     self.regenerateEcKey(addr)
@@ -184,6 +187,14 @@ class Server(node.Node):
     def getClientLength(self):
         with self.clientsLock:
             return len(self.clients)
+        
+    def isNotFull(self) -> bool:
+        with self.clientsLock:
+            return len(self.clients) < self.maxClients # check space
+
+    def isEmpty(self) -> bool:
+        with self.clientsLock:
+            return len(self.clients) == 0
 
     def listen(self):
         print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
@@ -221,6 +232,8 @@ class Server(node.Node):
                 elif delta > HEARTBEAT_MIN_TIME:
                     self.queueHeartbeat(clientAddr, heartbeat=False)
             # print("HEART STOPPING")
+        else:
+            print("| heartbeat thread stopping...")
                     
     def makeClient(self, clientAddr, cert):
         c = node.Node(clientAddr, cert=cert, sendLock=self.sendLock, socket=self.socket)
@@ -231,6 +244,7 @@ class Server(node.Node):
     def removeClient(self, clientAddr, debugStr=""):
         with self.clientsLock:
             print(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
+            self.clients[clientAddr].isRunning.clear()
             del self.clients[clientAddr]
             if self.onClientLeave:
                 self.onClientLeave(clientAddr)
@@ -240,7 +254,17 @@ class Server(node.Node):
         super().startThreads()
         self.heartbeatThread.start()
         
-
+    def validateCertificate(self, certificate): 
+        url = f"http://{self.host}:5000/auth/certificate/validate"
+        headers = {"Content-Type":"application/json"}
+        certificate = base64.encodebytes(auth.getDerFromCertificate(certificate)).decode()
+        data = {"certificate": certificate}
+        r = requests.get(url, headers=headers, data=json.dumps(data))
+        if r.status_code == 200:
+            return r.json()["valid"]
+        else:
+            return False
+        
 if __name__ == "__main__":
     from time import sleep
     
