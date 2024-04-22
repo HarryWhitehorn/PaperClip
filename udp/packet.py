@@ -3,7 +3,7 @@ from cryptography.x509 import Certificate
 from enum import Enum
 import struct
 
-from . import auth, utils
+from . import auth, utils, logger
 
 VERSION = 0
 # SIZE in Bits
@@ -76,7 +76,8 @@ class Packet:
             cipher = auth.generateCipher(session_key, self.init_vector)[0]
             self.data = auth.decryptBytes(cipher, self.data)
         else:
-            raise ValueError(f"Packet {self} is not flagged as ENCRYPTED ({self.flags}).")
+            # raise ValueError(f"Packet {self} is not flagged as ENCRYPTED ({self.flags}).")
+            logger.warning(f"Packet {self} is not flagged as ENCRYPTED ({self.flags}).")
         
     def compressData(self):
         self.flags[Flag.COMPRESSED.value] = 1
@@ -86,7 +87,8 @@ class Packet:
         if self.flags[Flag.COMPRESSED.value]:
             self.data = utils.decompressData(self.data)
         else:
-            raise ValueError(f"Packet {self} is not flagged as COMPRESSED ({self.flags}).")
+            # raise ValueError(f"Packet {self} is not flagged as COMPRESSED ({self.flags}).")
+            logger.warning(f"Packet {self} is not flagged as COMPRESSED ({self.flags}).")
         
     def setChecksum(self):
         self.flags[Flag.CHECKSUM.value] = 1
@@ -98,7 +100,8 @@ class Packet:
             data = self.data if self.data != None else b""
             return self.checksum == utils.generateChecksum(data)
         else:
-            raise ValueError(f"Packet {self} is not flagged as CHECKSUM ({self.flags}).")
+            # raise ValueError(f"Packet {self} is not flagged as CHECKSUM ({self.flags}).")
+            logger.warning(f"Packet {self} is not flagged as CHECKSUM ({self.flags}).")
     
     @staticmethod
     def _getHeader(p):
@@ -124,7 +127,8 @@ class Packet:
             data = utils.defragmentData([frag.data for frag in frags])
             return cls(**header, data=data)
         else:
-            raise ValueError(f"Packet {frags[0]} is not flagged as FRAG ({frags[0].flags}).")
+            # raise ValueError(f"Packet {frags[0]} is not flagged as FRAG ({frags[0].flags}).")
+            logger.warning(f"Packet {frags[0]} is not flagged as FRAG ({frags[0].flags}).")
 
     # dunder
     def __str__(self) -> str:
@@ -501,7 +505,8 @@ def unpack(rawP):
         case Type.HEARTBEAT:
             return HeartbeatPacket.unpack(rawP)
         case _:
-            raise TypeError(f"Invalid packet type {packet_type}")
+            # raise TypeError(f"Invalid packet type {packet_type}")
+            logger.warning(f"Packet {self} is not flagged as CHECKSUM ({self.flags}).")
         
 if __name__ == "__main__":
     pass

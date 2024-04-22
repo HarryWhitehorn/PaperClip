@@ -11,7 +11,7 @@ import random
 import time
 import json
 
-from . import bcolors, packet, auth
+from . import bcolors, packet, auth, logger
 
 BUFFER_SIZE = 1024
 SEND_SLEEP_TIME = 0.1
@@ -171,7 +171,8 @@ class Node:
     # sends
     def sendPacket(self, addr, p):
         with self.sendLock:
-            print(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+            # print(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+            logger.info(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
             self.socket.sendto(p.pack(p), (addr[0],addr[1]))
         
     def sendQueue(self):
@@ -192,7 +193,8 @@ class Node:
             except Empty:
                 pass # check still running
         else:
-            print("| sendQueue thread stopping...")
+            # print("| sendQueue thread stopping...")
+            logger.info("| sendQueue thread stopping...")
             
     def queuePacket(self, addr, p:packet.Packet):
         if p.flags[packet.Flag.RELIABLE.value]:
@@ -253,7 +255,8 @@ class Node:
     def receive(self, p, addr):
         if p != None:
             if self.handleFlags(p, addr):
-                print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+                # print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+                logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
                 match (p.packet_type):
                     case packet.Type.DEFAULT:
                         return self.receiveDefault(p, addr)
@@ -264,7 +267,8 @@ class Node:
                     case packet.Type.HEARTBEAT:
                         return self.receiveHeartbeat(p, addr)
                     case _:
-                        raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
+                        # raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
+                        logger.warning(f"Unknown packet type '{p.packet_type}' for packet {p}")
     
     def receiveDefault(self, p:packet.Packet, addr):
         self.setNewestSeqId(addr, self.getNewerSeqId(self.getNewestSeqId(addr), p.sequence_id))
@@ -293,12 +297,14 @@ class Node:
         return (p, addr)
         
     def listen(self):
-        print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
+        # print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
+        logger.info(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
         while self.isRunning.is_set():
             p, addr = self.receivePacket()
             self.receive(p, addr)
         else:
-            print("| listen thread stopping...")
+            # print("| listen thread stopping...")
+            logger.info("| listen thread stopping...")
         
     # flags handle
     def handleFlags(self, p:packet.Packet, addr) -> bool:
@@ -317,17 +323,15 @@ class Node:
             self.setNewestSeqId(addr, self.getNewerSeqId(self.getNewestSeqId(addr), p.sequence_id))
             self.setRecvAckBit(addr, p.sequence_id, True)
             self.resetRecvAckBits(addr)
-            if random.randint(0,3): # TODO: NOTE: DEBUG REMOVE
-                self.queueACK(addr, p.sequence_id)
-            else:
-                print(f"\t{bcolors.FAIL}{bcolors.BOLD}--DEBUG DROPPED ACK for {p}--{bcolors.ENDC}")
+            self.queueACK(addr, p.sequence_id)                
             return True
         else:
             return False
         
     def handleFrag(self, p:packet.Packet, addr) -> bool:
         if p.flags[packet.Flag.FRAG.value]:
-            print(f"\t{bcolors.OKBLUE}< {addr} :{bcolors.ENDC}{bcolors.WARNING} FRAG {p.fragment_id}/{p.fragment_number} {p}{bcolors.ENDC}")
+            # print(f"\t{bcolors.OKBLUE}< {addr} :{bcolors.ENDC}{bcolors.WARNING} FRAG {p.fragment_id}/{p.fragment_number} {p}{bcolors.ENDC}")
+            logger.info(f"\t{bcolors.OKBLUE}< {addr} :{bcolors.ENDC}{bcolors.WARNING} FRAG {p.fragment_id}/{p.fragment_number} {p}{bcolors.ENDC}")
             if not p.sequence_id in self.getFragBuffer(addr):
                 self.getFragBuffer(addr)[p.sequence_id] = [None for _ in range(p.fragment_number)]
             self.getFragBuffer(addr)[p.sequence_id][p.fragment_id] = p
@@ -356,9 +360,11 @@ class Node:
     def handleChecksum(self, p:packet.Packet, addr) -> bool:
         if p.flags[packet.Flag.CHECKSUM.value]:
             if not p.validateChecksum():
-                raise ValueError(f"\tInvalid checksum: {p}")
+                # raise ValueError(f"\tInvalid checksum: {p}")
+                logger.warning(f"\tInvalid checksum: {p}")
             else:
-                print(f"\tValid checksum: {p}")
+                # print(f"\tValid checksum: {p}")
+                logger.info(f"\tValid checksum: {p}")
             return True
         else:
             return False
@@ -402,5 +408,6 @@ class Node:
             
     
 if __name__ == "__main__":
+    from . import C_HOST, C_PORT
     nOne = Node((C_HOST, C_PORT))
     

@@ -7,7 +7,7 @@ import socket
 import json
 import time
 
-from . import bcolors, node, packet, auth
+from . import bcolors, node, packet, auth, logger
 
 HEARTBEAT_MAX_TIME = 120 # seconds
 HEARTBEAT_MIN_TIME = 30 # seconds
@@ -49,18 +49,22 @@ class Server(node.Node):
             super().receiveAck(p, addr)
             if p.data != None and not self.getHandshake(addr): # ack has payload & client has not completed handshake => validate handshake
                 if not self.validateHandshake(addr, p.data):
-                    raise ValueError(f"Local finished value does not match peer finished value {p.data}")
+                    # raise ValueError(f"Local finished value does not match peer finished value {p.data}")
+                    logger.error(f"Local finished value does not match peer finished value {p.data}")
                 else:
-                    print(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
+                    # print(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
+                    logger.info(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
                     if self.onClientJoin:
                         self.onClientJoin(addr)
                  
     def receiveAuth(self, p:packet.AuthPacket, addr):
         if not addr in self.clients: # new client
             if self.isNotFull(): # check space
-                print(f"{bcolors.WARNING}# Handshake with {addr} starting.{bcolors.ENDC}")
+                # print(f"{bcolors.WARNING}# Handshake with {addr} starting.{bcolors.ENDC}")
+                logger.info(f"{bcolors.WARNING}# Handshake with {addr} starting.{bcolors.ENDC}")
                 if not self.validateCertificate(p.certificate):
-                    raise ValueError(f"Invalid peer cert {p.certificate}")
+                    # raise ValueError(f"Invalid peer cert {p.certificate}")
+                    logger.error(f"Invalid peer cert {p.certificate}")
                 else:
                     self.makeClient(addr, p.certificate)
                     self.regenerateEcKey(addr)
@@ -69,15 +73,18 @@ class Server(node.Node):
                     self.queueAuth(addr, self.cert, self.getEcKey(addr).public_key())
                     self.queueFinished(addr, p.sequence_id, self.getSessionKey(addr))
             else:
-                print(f"{bcolors.FAIL}# Handshake with {addr} denied due to NO_SPACE.{bcolors.ENDC}")
+                # print(f"{bcolors.FAIL}# Handshake with {addr} denied due to NO_SPACE.{bcolors.ENDC}")
+                logger.warning(f"{bcolors.FAIL}# Handshake with {addr} denied due to NO_SPACE.{bcolors.ENDC}")
                 # ToDo: send no space ERROR
         else:
             sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
         if addr in self.clients:
             if self.getSessionKey(addr) !=  sessionKey: # new client sessionKey
-                print(f"{bcolors.WARNING}# Handshake with {addr} reset.{bcolors.ENDC}")
+                # print(f"{bcolors.WARNING}# Handshake with {addr} reset.{bcolors.ENDC}")
+                logger.info(f"{bcolors.WARNING}# Handshake with {addr} reset.{bcolors.ENDC}")
                 if not self.validateCertificate(p.certificate):
-                    raise ValueError(f"Invalid peer cert {p.certificate}")
+                    # raise ValueError(f"Invalid peer cert {p.certificate}")
+                    logger.warning(f"Invalid peer cert {p.certificate}")
                 else:
                     self.regenerateEcKey(addr)
                     # self.clients[addr].cert = p.certificate # shouldn't change
@@ -197,7 +204,8 @@ class Server(node.Node):
             return len(self.clients) == 0
 
     def listen(self):
-        print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
+        # print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
+        logger.info(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
         while self.isRunning.is_set():
             p, addr = self.receivePacket()
             if p != None and addr != None:
@@ -212,15 +220,15 @@ class Server(node.Node):
                     if p.packet_type == packet.Type.AUTH: # client not exists => drop all non-AUTH packets
                         self.receive(p, addr)
                     else:
-                        print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
+                        # print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
+                        logger.warning(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
         else:
-            print("| listen thread stopping...")
+            # print("| listen thread stopping...")
+            logger.info("| listen thread stopping...")
             
     def heartbeat(self):
-        # print("HEART")
         while self.isRunning.is_set():
             time.sleep(HEARTBEAT_MIN_TIME)
-            # print("HEART BEATING")
             with self.clientsLock:
                 clients = [k for k in self.clients.keys()]
             for clientAddr in clients:
@@ -231,9 +239,9 @@ class Server(node.Node):
                     self.removeClient(clientAddr, debugStr=f"due to heartbeat timeout (last contact was {heartbeat})")
                 elif delta > HEARTBEAT_MIN_TIME:
                     self.queueHeartbeat(clientAddr, heartbeat=False)
-            # print("HEART STOPPING")
         else:
-            print("| heartbeat thread stopping...")
+            # print("| heartbeat thread stopping...")
+            logger.info("| heartbeat thread stopping...")
                     
     def makeClient(self, clientAddr, cert):
         c = node.Node(clientAddr, cert=cert, sendLock=self.sendLock, socket=self.socket)
@@ -243,7 +251,8 @@ class Server(node.Node):
     
     def removeClient(self, clientAddr, debugStr=""):
         with self.clientsLock:
-            print(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
+            # print(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
+            logger.info(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
             self.clients[clientAddr].isRunning.clear()
             del self.clients[clientAddr]
             if self.onClientLeave:
