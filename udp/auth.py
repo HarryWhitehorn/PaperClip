@@ -9,9 +9,7 @@ from cryptography import x509
 import datetime
 import os
 
-FILE_PATH = r"udp/store/"
-ORG_NAME = "Paperclip"
-COMMON_NAME = "127.0.0.1"
+from . import ORG_NAME, COMMON_NAME
 
 def generateRsaKey():
     key = rsa.generate_private_key(
@@ -42,18 +40,6 @@ def getDerFromRsaPublic(key:rsa.RSAPublicKey) -> bytes:
 def getRsaPublicFromDer(data:bytes) -> rsa.RSAPublicKey:
     key = serialization.load_der_public_key(data)
     return key
-
-# def storeKey(key, filename, password):
-#     with open(f"{FILE_PATH}{filename}.pem", "wb") as f:
-#         f.write(key.private_bytes(
-#             encoding=serialization.Encoding.PEM,
-#             format=serialization.PrivateFormat.TraditionalOpenSSL,
-#             encryption_algorithm=serialization.BestAvailableEncryption(password),
-#         ))
-        
-# def loadKey(filename, password):
-#     with open(f"{FILE_PATH}{filename}.pem", "rb") as f:
-#         return serialization.load_pem_private_key(f.read(), password)
     
 def generateUserCertificate(key, userId:int|str|None=None, username:str|None=None):
     name = [x509.NameAttribute(NameOID.ORGANIZATION_NAME, ORG_NAME),x509.NameAttribute(NameOID.COMMON_NAME, COMMON_NAME)]
@@ -104,15 +90,6 @@ def validateCertificate(certificate:x509.Certificate, publicKey:rsa.RSAPublicKey
     except InvalidSignature:
         return False
     return True
-    
-    
-# def storeCertificate(cert, filename):
-#     with open(f"{FILE_PATH}{filename}.pem", "wb") as f:
-#         f.write(cert.public_bytes(serialization.Encoding.PEM))
-        
-# def loadCertificate(filename):
-#     with open(f"{FILE_PATH}{filename}.pem", "rb") as f:
-#         return x509.load_pem_x509_certificate(f.read())
     
 def generateEcKey():
     key = ec.generate_private_key(
@@ -181,28 +158,4 @@ def generateFinished(sessionKey, finishedLabel, messages):
     prf = prf.finalize()
     
     return prf
-    
-if __name__ == "__main__":
-    lK = generateEcKey()
-    pK = generateEcKey()
-    sK = generateSessionKey(lK, pK.public_key())
-    prf = generateFinished(sK, b"server", b"\xf0\x0f")
-    print(prf)
-    print(len(prf))
-    assert True
-    # ec_ = generateEcKey()
-    # assert True
-    ##
-    # keyOne = generateRsaKey()
-    # storeKey(keyOne, "keyOne", b"password1234")
-    # print(keyOne)
-    # certOne = generateCertificate(keyOne)
-    # storeCertificate(certOne, "certOne")
-    # print(certOne)
-    # certTwo = loadCertificate("certOne")
-    # print(certTwo)
-    # assert certOne == certTwo
-    # assert keyOne.public_key() == certOne.public_key()
-    # keyTwo = loadKey("test", b"password1234")
-    # print(keyTwo)
     

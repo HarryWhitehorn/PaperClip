@@ -12,7 +12,7 @@ MAX_PLAYERS = 2
 class Server:
     isRunning:bool
     recvBuffer: Queue
-    players: dict[tuple[str, int], int]
+    players: dict[tuple[str, int], dict[str,int]]
     playersLock: Lock
     udpServer: UdpServer
     onClientJoin: None
@@ -88,26 +88,26 @@ class Server:
     
     def getChoices(self):
         choices = {}
-        while True:
+        while self.isRunning:
             addr, data = self.recvQueue.get()
             choices[addr] = data["choice"]
             if len(choices) == 2:
-                break
-        choices = [(addr, choice) for addr, choice in choices.items()]
-        self.recvQueue.task_done()
-        return choices
+                choices = [(addr, choice) for addr, choice in choices.items()]
+                self.recvQueue.task_done()
+                return choices
     
-    def playerJoin(self, addr):
+    def playerJoin(self, addr, accountId):
         with self.playersLock:
-            self.players[addr] = 0
+            self.players[addr] = {"score":0,"accountId":accountId}
         if self.onClientJoin:
-            self.onClientJoin(addr)
+            self.onClientJoin(addr, accountId)
         
-    def playerLeave(self, addr):
+    def playerLeave(self, addr, accountId):
         with self.playersLock:
+            # TODO: submit score
             del self.players[addr]
         if self.onClientLeave:
-            self.onClientLeave(addr)
+            self.onClientLeave(addr, accountId)
             
     def isNotFull(self):
         return self.udpServer.isNotFull()
@@ -133,7 +133,15 @@ class Server:
                 
     def incrementPlayer(self, addr) -> None:
         with self.playersLock:
-            self.players[addr] += 1
+            self.players[addr]["score"] += 1
+            
+    def getAccountId(self, addr):
+        with self.playersLock:
+            return self.players[addr]["accountId"]
+        
+    def getAccountIds(self, addr):
+        with self.playersLock:
+            return [player["accountId"] for player in self.players.values()]
         
     @property
     def playerCount(self):

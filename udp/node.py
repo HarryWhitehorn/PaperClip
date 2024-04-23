@@ -12,11 +12,8 @@ import time
 import json
 
 from . import bcolors, packet, auth, logger
+from . import SOCKET_BUFFER_SIZE, SEND_SLEEP_TIME, QUEUE_TIMEOUT, SOCKET_TIMEOUT
 
-BUFFER_SIZE = 1024
-SEND_SLEEP_TIME = 0.1
-QUEUE_TIMEOUT = 10
-SOCKET_TIMEOUT = 20
 ACK_RESET_SIZE = (2**packet.ACK_BITS_SIZE) // 2
 
 class Node:
@@ -31,6 +28,7 @@ class Node:
     # id
     # rsaKey: RSAPrivateKey|None
     cert: Certificate|None
+    _accountId: int|None
     # session
     ecKey: EllipticCurvePrivateKey
     sessionKey: bytes|None
@@ -46,7 +44,7 @@ class Node:
     # callback
     onReceiveData: None
     
-    def __init__(self, addr:tuple[str,int], cert:Certificate|None=None, sendLock:Lock=Lock(), socket:Socket|None=Socket(type=SOCK_DGRAM), onReceiveData:None=None) -> None:
+    def __init__(self, addr:tuple[str,int], cert:Certificate|None=None, accountId:int|None=None, sendLock:Lock=Lock(), socket:Socket|None=Socket(type=SOCK_DGRAM), onReceiveData:None=None) -> None:
         self.addr = addr
         self.sequenceId = 0
         self.sentAckBits = [None for _ in range(2**packet.ACK_BITS_SIZE)]
@@ -55,15 +53,14 @@ class Node:
         self.fragBuffer = {}
         self.queue = Queue()
         # id
-        # self.rsaKey = auth.generateRsaKey()
-        self.cert = cert # auth.generateCertificate(self.rsaKey)
+        self.cert = cert
+        self.accountId = accountId
         # session
-        # self.regenerateEcKey()
         self.sessionKey = None
         self.handshake = False
         # threads
-        self.inboundThread = Thread(target=self.listen,daemon=True)
-        self.outboundThread = Thread(target=self.sendQueue,daemon=True)
+        self.inboundThread = Thread(name=f"{self.port}:Inbound", target=self.listen,daemon=True)
+        self.outboundThread = Thread(name=f"{self.port}:Outbound", target=self.sendQueue,daemon=True)
         self.sequenceIdLock = Lock()
         self.sendLock = sendLock
         self.isRunning = Event()
@@ -97,6 +94,19 @@ class Node:
     def incrementSequenceId(self, addr) -> None:
         with self.getSequenceIdLock(addr):
             self.sequenceId += 1
+            
+    @property
+    def accountId(self) -> int:
+        return self._accountId
+    
+    @accountId.setter
+    def accountId(self, v:int|str|None) -> None:
+        try:
+            self._accountId = int(v)
+        except ValueError:
+            self._accountId = v
+        except TypeError:
+            self._accountId = None
         
     def getSentAckBit(self, addr:tuple[str, int], p:packet.Packet) -> bool|None:
         return self.sentAckBits[p.sequence_id]
@@ -244,7 +254,7 @@ class Node:
     # receives
     def receivePacket(self):
         try:
-            data, addr = self.socket.recvfrom(BUFFER_SIZE)
+            data, addr = self.socket.recvfrom(SOCKET_BUFFER_SIZE)
             p = packet.unpack(data)
             return p, addr
         except ConnectionResetError:
@@ -404,7 +414,12 @@ class Node:
         return self.handshake
     
     def quit(self):
+        logger.info(f"{bcolors.FAIL}# Quitting due to quit call.{bcolors.ENDC}")
         self.isRunning.clear()
+        self.inboundThread.join()
+        self.outboundThread.join()
+        self.socket.close()
+        logger.info(f"{bcolors.FAIL}# Quit finished.{bcolors.ENDC}")
             
     
 if __name__ == "__main__":

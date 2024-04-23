@@ -8,10 +8,7 @@ import json
 import time
 
 from . import bcolors, node, packet, auth, logger
-
-HEARTBEAT_MAX_TIME = 120 # seconds
-HEARTBEAT_MIN_TIME = 30 # seconds
-MAX_CLIENTS = float("inf") # no limit
+from . import HEARTBEAT_MAX_TIME, HEARTBEAT_MIN_TIME, MAX_CLIENTS
 
 class Server(node.Node):
     clients: dict[tuple[str, int], node.Node]
@@ -29,12 +26,12 @@ class Server(node.Node):
         self.clientDeleteEvent = Event()
         self.clientDeleteEvent.set()
         self.rsaKey = rsaKey if rsaKey != None else auth.generateRsaKey()
-        self.heartbeatThread = Thread(target=self.heartbeat, daemon=True)
         self.onClientJoin = onClientJoin
         self.onClientLeave = onClientLeave
         self.maxClients = maxClients
         s = socket.socket(type=socket.SOCK_DGRAM)
         super().__init__(addr, cert=auth.generateUserCertificate(self.rsaKey), socket=s, onReceiveData=onReceiveData)
+        self.heartbeatThread = Thread(name=f"{self.port}:Heartbeat", target=self.heartbeat, daemon=True)
         self.bind(self.addr)
             
     def receiveDefault(self, p, addr):
@@ -46,27 +43,28 @@ class Server(node.Node):
             self._testPacket(addr)
             
     def receiveAck(self, p, addr):
-            super().receiveAck(p, addr)
-            if p.data != None and not self.getHandshake(addr): # ack has payload & client has not completed handshake => validate handshake
-                if not self.validateHandshake(addr, p.data):
-                    # raise ValueError(f"Local finished value does not match peer finished value {p.data}")
-                    logger.error(f"Local finished value does not match peer finished value {p.data}")
-                else:
-                    # print(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
-                    logger.info(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
-                    if self.onClientJoin:
-                        self.onClientJoin(addr)
+        super().receiveAck(p, addr)
+        if p.data != None and not self.getHandshake(addr): # ack has payload & client has not completed handshake => validate handshake
+            if not self.validateHandshake(addr, p.data):
+                # raise ValueError(f"Local finished value does not match peer finished value {p.data}")
+                logger.error(f"Local finished value does not match peer finished value {p.data}")
+            else:
+                # print(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
+                logger.info(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
+                if self.onClientJoin:
+                    self.onClientJoin(addr, self.getClientId(addr))
                  
     def receiveAuth(self, p:packet.AuthPacket, addr):
         if not addr in self.clients: # new client
             if self.isNotFull(): # check space
                 # print(f"{bcolors.WARNING}# Handshake with {addr} starting.{bcolors.ENDC}")
                 logger.info(f"{bcolors.WARNING}# Handshake with {addr} starting.{bcolors.ENDC}")
-                if not self.validateCertificate(p.certificate):
+                valid, accountId = self.validateCertificate(p.certificate)
+                if not valid:
                     # raise ValueError(f"Invalid peer cert {p.certificate}")
                     logger.error(f"Invalid peer cert {p.certificate}")
                 else:
-                    self.makeClient(addr, p.certificate)
+                    self.makeClient(addr, p.certificate, accountId)
                     self.regenerateEcKey(addr)
                     sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
                     self.setSessionKey(addr,sessionKey)
@@ -82,7 +80,8 @@ class Server(node.Node):
             if self.getSessionKey(addr) !=  sessionKey: # new client sessionKey
                 # print(f"{bcolors.WARNING}# Handshake with {addr} reset.{bcolors.ENDC}")
                 logger.info(f"{bcolors.WARNING}# Handshake with {addr} reset.{bcolors.ENDC}")
-                if not self.validateCertificate(p.certificate):
+                valid, accountId = self.validateCertificate(p.certificate)
+                if not valid:
                     # raise ValueError(f"Invalid peer cert {p.certificate}")
                     logger.warning(f"Invalid peer cert {p.certificate}")
                 else:
@@ -195,6 +194,14 @@ class Server(node.Node):
         with self.clientsLock:
             return len(self.clients)
         
+    def getClientId(self, clientAddr):
+        with self.clientsLock:
+            return self.clients[clientAddr].accountId
+        
+    def getClientIds(self):
+        with self.clientsLock:
+            return [client.id for addr, client in self.clients.items()]
+        
     def isNotFull(self) -> bool:
         with self.clientsLock:
             return len(self.clients) < self.maxClients # check space
@@ -243,8 +250,8 @@ class Server(node.Node):
             # print("| heartbeat thread stopping...")
             logger.info("| heartbeat thread stopping...")
                     
-    def makeClient(self, clientAddr, cert):
-        c = node.Node(clientAddr, cert=cert, sendLock=self.sendLock, socket=self.socket)
+    def makeClient(self, clientAddr, cert, accountId):
+        c = node.Node(clientAddr, cert=cert, accountId=accountId, sendLock=self.sendLock, socket=self.socket)
         c.outboundThread.start()
         with self.clientsLock:
             self.clients[clientAddr] = c
@@ -256,7 +263,7 @@ class Server(node.Node):
             self.clients[clientAddr].isRunning.clear()
             del self.clients[clientAddr]
             if self.onClientLeave:
-                self.onClientLeave(clientAddr)
+                self.onClientLeave(clientAddr, self.getClientId(clientAddr))
     
     # misc
     def startThreads(self):
@@ -268,10 +275,14 @@ class Server(node.Node):
         headers = {"Content-Type":"application/json"}
         certificate = base64.encodebytes(auth.getDerFromCertificate(certificate)).decode()
         data = {"certificate": certificate}
-        r = requests.get(url, headers=headers, data=json.dumps(data))
-        if r.status_code == 200:
-            return r.json()["valid"]
-        else:
+        try:
+            r = requests.get(url, headers=headers, data=json.dumps(data))
+            if r.status_code == 200:
+                return r.json()["valid"], r.json()["account-id"]
+            else:
+                return False
+        except: 
+            # Cert server unresponsive
             return False
         
 if __name__ == "__main__":

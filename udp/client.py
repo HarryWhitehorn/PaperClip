@@ -13,13 +13,13 @@ class Client(node.Node):
     onConnect: None
     onDisconnect: None
     
-    def __init__(self, addr, targetAddr, rsaKey:RSAPrivateKey|None=None, userId:int|str|None=None, username:str|None=None, onConnect=None, onDisconnect=None, onReceiveData=None):
+    def __init__(self, addr, targetAddr, rsaKey:RSAPrivateKey|None=None, accountId:int|str|None=None, username:str|None=None, onConnect=None, onDisconnect=None, onReceiveData=None):
         self.targetAddr = targetAddr
         self.rsaKey = rsaKey if rsaKey != None else auth.generateRsaKey()
         self.onConnect = onConnect
         self.onDisconnect = onDisconnect
         s = socket.socket(type=socket.SOCK_DGRAM)
-        super().__init__(addr, cert=auth.generateUserCertificate(self.rsaKey, userId, username), socket=s, onReceiveData=onReceiveData)
+        super().__init__(addr, cert=auth.generateUserCertificate(self.rsaKey, accountId, username), accountId=accountId, socket=s, onReceiveData=onReceiveData)
         self.regenerateEcKey()
         self.bind(self.addr)
     
@@ -38,51 +38,55 @@ class Client(node.Node):
         return super().queueACK(self.targetAddr, ackId, flags=flags, data=data)
     
     def connect(self):
-        # print(f"{bcolors.WARNING}# Handshake with {self.targetAddr} starting.{bcolors.ENDC}")
-        logger.info(f"{bcolors.WARNING}# Handshake with {self.targetAddr} starting.{bcolors.ENDC}")
-        self.outboundThread.start()
-        self.queueAuth(self.targetAddr, self.cert, self.ecKey.public_key())
-        authPacket = None
-        ackPacket = None
-        while True:
-            p, addr = self.receivePacket()
-            if p != None:
-                #logic
-                if p.packet_type == packet.Type.AUTH:
-                    # print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-                    logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-                    authPacket = p
-                    self.sessionKey = auth.generateSessionKey(self.ecKey, p.public_key)
-                    if not self.validateCertificate(p.certificate):
-                        # raise ValueError(f"Invalid peer cert {p.certificate}")
-                        logger.critical(f"Invalid peer cert {p.certificate}")
+        try:
+            # print(f"{bcolors.WARNING}# Handshake with {self.targetAddr} starting.{bcolors.ENDC}")
+            logger.info(f"{bcolors.WARNING}# Handshake with {self.targetAddr} starting.{bcolors.ENDC}")
+            self.outboundThread.start()
+            self.queueAuth(self.targetAddr, self.cert, self.ecKey.public_key())
+            authPacket = None
+            ackPacket = None
+            while True:
+                p, addr = self.receivePacket()
+                if p != None:
+                    #logic
+                    if p.packet_type == packet.Type.AUTH:
+                        # print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+                        logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+                        authPacket = p
+                        self.sessionKey = auth.generateSessionKey(self.ecKey, p.public_key)
+                        if not self.validateCertificate(p.certificate):
+                            # raise ValueError(f"Invalid peer cert {p.certificate}")
+                            logger.critical(f"Invalid peer cert {p.certificate}")
+                            break
+                        self.queueFinished(self.targetAddr, p.sequence_id, self.sessionKey)
+                    elif p.packet_type == packet.Type.ACK:
+                        # print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+                        logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+                        ackPacket = p
+                        self.receiveAck(p, addr)
+                    else:
+                        # print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
+                        logger.warning(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
+                    if authPacket != None and ackPacket != None:
                         break
-                    self.queueFinished(self.targetAddr, p.sequence_id, self.sessionKey)
-                elif p.packet_type == packet.Type.ACK:
-                    # print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-                    logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-                    ackPacket = p
-                    self.receiveAck(p, addr)
                 else:
-                    # print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
-                    logger.warning(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
-                if authPacket != None and ackPacket != None:
-                    break
+                    # timeout and abort
+                    # raise ValueError("Server not responsive.")
+                    logger.critical("Server not responsive.")
+            if self.validateHandshake(p.data):
+                # success
+                # print(f"{bcolors.OKGREEN}Handshake success starting mainloop...{bcolors.ENDC}")
+                logger.info(f"{bcolors.OKGREEN}Handshake success starting mainloop...{bcolors.ENDC}")
+                self.inboundThread.start()
+                if self.onConnect:
+                    self.onConnect(addr)
             else:
-                # timeout and abort
-                # raise ValueError("Server not responsive.")
-                logger.critical("Server not responsive.")
-        if self.validateHandshake(p.data):
-            # success
-            # print(f"{bcolors.OKGREEN}Handshake success starting mainloop...{bcolors.ENDC}")
-            logger.info(f"{bcolors.OKGREEN}Handshake success starting mainloop...{bcolors.ENDC}")
-            self.inboundThread.start()
-            if self.onConnect:
-                self.onConnect(addr)
-        else:
-            # raise ValueError(f"Local finished value {node.Node._generateFinished(self.sessionKey)} does not match peer finished value {ackPacket.data}")
-            logger.critical(f"Local finished value {node.Node._generateFinished(self.sessionKey)} does not match peer finished value {ackPacket.data}")
-        
+                # raise ValueError(f"Local finished value {node.Node._generateFinished(self.sessionKey)} does not match peer finished value {ackPacket.data}")
+                logger.critical(f"Local finished value {node.Node._generateFinished(self.sessionKey)} does not match peer finished value {ackPacket.data}")
+        finally:
+            # TODO: exit gracefully
+            self.quit()
+            
     # auth
     def validateCertificate(self, certificate): 
         url = f"http://{self.targetHost}:5000/auth/certificate/validate"

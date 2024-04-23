@@ -16,14 +16,12 @@ services:
     ports:
       - 3306:3306
 
-  # app:
-  #   build: ./app
-  #   restart: always
+  # server:
+  #   image: paperclip_server
   #   ports:
-  #     - 8000:5000
-  #   environment:
-  #     FLASK_APP: /app
-  #     FLASK_ENV: development
+  #     - 5000:5000
+  #     - "5001-5100:5001-5100/udp"
+  #     - "2020-2050:2020-2050/udp"
   #   links:
   #     - db
   #   depends_on:

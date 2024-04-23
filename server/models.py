@@ -1,6 +1,4 @@
-from enum import Enum
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
 from flask import current_app
 import jwt
@@ -116,3 +114,16 @@ class Statement():
     @staticmethod
     def findGame(gameName:str) -> Game|None:
         return Game.query.filter_by(name=gameName).scalar()
+    
+    # delete
+    @staticmethod
+    def removeFriends(accountIdOne:int, accountIdTwo: int) -> bool:
+        idOne = min(accountIdOne, accountIdTwo)
+        idTwo = max(accountIdOne, accountIdTwo)
+        friends = Friends.query.filter((Friends.account_one_id==idOne)&(Friends.account_two_id==idTwo))
+        if friends != None:
+            friends.delete()
+            db.session.commit()
+            return True
+        else:
+            return False

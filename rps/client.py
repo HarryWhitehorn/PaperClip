@@ -19,7 +19,7 @@ class Client:
         self.recvQueue = Queue()
         self.score = 0
         self.onReceiveData = onReceiveData
-        self.udpClient = UdpClient(addr, targetAddr, rsaKey=rsaKey, userId=userId, username=username, onConnect=self.onConnect, onReceiveData=self.receive)
+        self.udpClient = UdpClient(addr, targetAddr, rsaKey=rsaKey, accountId=userId, username=username, onConnect=self.onConnect, onReceiveData=self.receive)
         
     def send(self, addr, data:json):
         self.udpClient.queueDefault(addr, data=self.encodeData(data))
@@ -44,21 +44,42 @@ class Client:
         self.mainloop()
         
     def mainloop(self):
+        print(f"{bcolors.HEADER}\n\nRock Paper Scissors{bcolors.ENDC}")
         try:
             while self.isRunning:
                 choice = None
                 while choice == None:
                     try:
-                        choice = int(input("Choice R[0], P[1], S[2]: "))
+                        choice = input("Choice R[0], P[1], S[2]: ")
+                        if choice == "q":
+                            print(f"{bcolors.FAIL}Quitting. Please wait...{bcolors.ENDC}")
+                            self.isRunning = False
+                            break
+                        choice = int(choice)
+                        if not choice in (0,1,2):
+                            print(f"{bcolors.FAIL}Invalid choice '{choice}'.{bcolors.ENDC}")
+                            choice = None
                     except ValueError:
-                        pass
-                self.send(self.udpClient.targetAddr, {"choice":choice})
-                addr, data = self.recvQueue.get()
-                print(data)
-                if data["outcome"] == Outcome.WIN:
-                    self.score += 1
-                self.recvQueue.task_done()
+                        print(f"{bcolors.FAIL}Invalid choice.{bcolors.ENDC}")
+                if self.isRunning:
+                    self.send(self.udpClient.targetAddr, {"choice":choice})
+                    print("Waiting for other player...")
+                    addr, data = self.recvQueue.get()
+                    match data["outcome"]:
+                        case 0:
+                            o = f"You {bcolors.FAIL}LOOSE{bcolors.ENDC}. "
+                        case 1:
+                            o = f"You {bcolors.OKGREEN}WIN{bcolors.ENDC}. "
+                        case 2:
+                            o = f"You {bcolors.OKCYAN}DRAW{bcolors.ENDC}. "
+                        case _:
+                            o = ""
+                    print(f"\n{o}You Picked {data['choice']}. They picked {data['otherChoice']}.\nThe score is {data['score']['score']}:{data['otherScore']['score']}.")
+                    if data["outcome"] == Outcome.WIN:
+                        self.score += 1
+                    self.recvQueue.task_done()
         finally:
+            # send exit
             self.isRunning = False
             self.udpClient.isRunning.clear()
 
