@@ -1,5 +1,11 @@
 # PaperClip
 
+## Note
+
+This software includes code that is based on or derived from `inputimeout`, a project by `johejo` available on [GitHub](https://github.com/johejo/inputimeout). The original code is licensed under the MIT License. Modifications have been made to the original code to prevent `win_inputimeout` from automatically appending a newline.
+
+## Requirements
+
 Requires: `python 3.11+`, `mysql server`
 
 ## Python

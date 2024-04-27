@@ -1,9 +1,9 @@
-from inputimeout import inputimeout, TimeoutOccurred
 from threading import Event, Thread
 from queue import Queue, Empty
 import random
 import json
 
+from inputimeout import inputimeout, TimeoutOccurred
 from udp.client import Client as UdpClient
 from udp.packet import lazyFlags, Flag
 import udp.error as error
@@ -90,6 +90,7 @@ class Client:
                             choice = None
                     except ValueError:
                         print(f"{bcolors.FAIL}Invalid choice.{bcolors.ENDC}")
+                        choice = None
                     except KeyboardInterrupt:
                         print(f"{bcolors.FAIL}Quitting. Please wait...{bcolors.ENDC}")
                         self.isRunning = False
