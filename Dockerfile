@@ -5,6 +5,7 @@ WORKDIR /app
 # COPY
 COPY server /app/server
 # COPY client /app/client
+# COPY inputimeout /app/inputimeout
 COPY rps /app/rps
 COPY udp /app/udp
 COPY .env /app/.env
@@ -19,3 +20,5 @@ ENV FLASK_ENV=development
 
 # CMD
 CMD ["flask", "run", "--host=0.0.0.0"]
+# CMD ["python", "-m", "client", "42"] 
+

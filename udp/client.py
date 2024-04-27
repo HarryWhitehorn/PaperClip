@@ -134,12 +134,16 @@ class Client(node.Node):
                 raise e # TODO: handle
             
     def mainloop(self, onQuit=None):
-        while self.isRunning.is_set():
-            pass
-        if onQuit == None:
-            self.quit(e=self.exitError)
-        else:
-            onQuit(e=self.exitError)
+        try:
+            while self.isRunning.is_set():
+                pass
+        except KeyboardInterrupt:
+            print(f"{bcolors.FAIL}Quitting. Please wait...{bcolors.ENDC}")
+        finally:
+            if onQuit == None:
+                self.quit(e=self.exitError)
+            else:
+                onQuit(e=self.exitError)
     
 if __name__ == "__main__":
     from time import sleep

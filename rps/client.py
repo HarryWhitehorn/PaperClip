@@ -79,7 +79,7 @@ class Client:
                 print("Choice R[0], P[1], S[2]: ")
                 while choice == None:
                     try:
-                        choice = inputimeout("",timeout=10)
+                        choice = inputimeout("",timeout=10).strip()
                         if choice == "q":
                             print(f"{bcolors.FAIL}Quitting. Please wait...{bcolors.ENDC}")
                             self.isRunning = False
