@@ -1,4 +1,6 @@
 from enum import Enum
+import yaml
+import os
 
 class bcolors:
     HEADER = '\033[95m'
@@ -20,5 +22,16 @@ class Outcome:
     LOOSE = 0
     WIN = 1
     DRAW = 2
-    
+
 QUEUE_TIMEOUT = 10
+
+# config
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "game_config.yaml")
+
+with open(CONFIG_PATH) as f:
+    config = yaml.safe_load(f)
+
+ID = config["ID"]
+NAME = config["NAME"]
+MIN_PLAYERS = config["MIN_PLAYERS"]
+MAX_PLAYERS = config["MAX_PLAYERS"]

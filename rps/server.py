@@ -5,9 +5,7 @@ import json
 
 from udp.server import Server as UdpServer
 
-from . import bcolors, Choice, Outcome, QUEUE_TIMEOUT
-
-MAX_PLAYERS = 2
+from . import bcolors, Choice, Outcome, MIN_PLAYERS, MAX_PLAYERS, QUEUE_TIMEOUT
 
 class Server:
     isRunning:bool
