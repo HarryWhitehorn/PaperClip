@@ -1,9 +1,17 @@
 # PaperClip
 
+Requires: `python 3.11+`, `mysql server`
+
+## Python
+
+### Setup
+
 Optional: `python -m venv env` and activate
 Install packages: `pip install -r requirements.txt`
 
-.env example, should be place in app root
+#### Env
+
+Example `.env`, **must** be place in app root
 
 ``` bash
 # udp
@@ -39,6 +47,10 @@ SQLALCHEMY_DATABASE_URI = mysql://root:root@localhost:3306/paperclip
 DEBUG = True
 ```
 
+### Run
+
 Server: `python -m flask run`
 
-Client: `python -m client` or `python -m client offset` where offset is some int such that `C_PORT` (from `.env`) becomes `C_PORT+=offset`
+Client: `python -m client` or `python -m client offset` (where `offset` is some `int` such that `C_PORT` (from `.env`) becomes `C_PORT+=offset`)
+
+Tests: `pytest -v` (Note: may take some time with no output due to testing of thread locks)

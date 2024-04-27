@@ -1,14 +1,22 @@
 from flask import Blueprint, redirect, render_template, request, url_for, abort, jsonify, g
 from flask_httpauth import HTTPBasicAuth
-from . import Statement
-from .lobbies import LobbyHandler
-import udp.auth
 import base64
+import atexit
+
+import udp.auth
+
+from .lobbies import LobbyHandler
+from . import Statement
 
 main = Blueprint("main", __name__)
 auth = HTTPBasicAuth()
 rsaKey = udp.auth.generateRsaKey()
 lobbyHandler = LobbyHandler(rsaKey=rsaKey)
+
+def quit():
+    lobbyHandler.quit()
+    
+atexit.register(quit)
 
 @auth.verify_password
 def verifyPassword(username, password):

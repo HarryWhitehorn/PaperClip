@@ -315,6 +315,7 @@ def _friendsLobbies(client:Client):
             try:
                 option = int(option)
                 client.join(option)
+                return None
             except ValueError:
                 print(f"{bcolors.FAIL}Error: Invalid input.{bcolors.ENDC}")
 
@@ -332,6 +333,7 @@ def _joinLobby(client:Client):
             print(f"{bcolors.FAIL}Error: Invalid input.{bcolors.ENDC}")
     try:
         client.join(lobbyId)
+        return None
     except:
         return None
 

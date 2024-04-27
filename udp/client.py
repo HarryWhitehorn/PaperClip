@@ -1,11 +1,15 @@
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+from threading import Thread
 import requests
 import socket
 import base64
 import json
 import random
 
-from . import bcolors, node, packet, auth, logger
+from udp.error import Major, Minor
+from udp.packet import FLAGS_SIZE
+
+from . import bcolors, node, packet, auth, error, logger
 
 class Client(node.Node):
     targetAddr: tuple[str,int]
@@ -37,6 +41,12 @@ class Client(node.Node):
     def queueACK(self, addr=None, ackId=None, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
         return super().queueACK(self.targetAddr, ackId, flags=flags, data=data)
     
+    def queueError(self, addr=None, major: Major | int = 0, minor: Minor | int = 0, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
+        return super().queueError(self.targetAddr, major, minor, flags, data)
+    
+    def queueDisconnect(self, addr=None, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
+        self.queueError(self.targetAddr, flags=flags, major=error.Major.DISCONNECT, minor=error.DisconnectErrorCodes.CLIENT_DISCONNECT, data=data)
+    
     def connect(self):
         try:
             # print(f"{bcolors.WARNING}# Handshake with {self.targetAddr} starting.{bcolors.ENDC}")
@@ -57,6 +67,7 @@ class Client(node.Node):
                         if not self.validateCertificate(p.certificate):
                             # raise ValueError(f"Invalid peer cert {p.certificate}")
                             logger.critical(f"Invalid peer cert {p.certificate}")
+                            self.queueError(major=error.Major.CONNECTION, minor=error.ConnectionErrorCodes.CERTIFICATE_INVALID, data=b"Invalid Certificate.")
                             break
                         self.queueFinished(self.targetAddr, p.sequence_id, self.sessionKey)
                     elif p.packet_type == packet.Type.ACK:
@@ -64,6 +75,9 @@ class Client(node.Node):
                         logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
                         ackPacket = p
                         self.receiveAck(p, addr)
+                    elif p.packet_type == packet.Type.ERROR:
+                        logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+                        self.receive(p, addr)
                     else:
                         # print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
                         logger.warning(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
@@ -83,9 +97,14 @@ class Client(node.Node):
             else:
                 # raise ValueError(f"Local finished value {node.Node._generateFinished(self.sessionKey)} does not match peer finished value {ackPacket.data}")
                 logger.critical(f"Local finished value {node.Node._generateFinished(self.sessionKey)} does not match peer finished value {ackPacket.data}")
-        finally:
-            # TODO: exit gracefully
-            self.quit()
+                self.queueError(major=error.Major.CONNECTION, minor=error.ConnectionErrorCodes.FINISH_INVALID, data=b"Invalid finish.")
+        except error.PaperClipError as e:
+            raise e
+        except Exception as e:
+            raise e
+        else:
+            if self.isRunning.is_set():
+                self._quit()
             
     # auth
     def validateCertificate(self, certificate): 
@@ -98,6 +117,29 @@ class Client(node.Node):
             return r.json()["valid"]
         else:
             return False
+        
+    # misc
+    def quit(self, msg="quit call", e=None):
+        self.queueDisconnect(data=msg.encode())
+        self.queue.join()
+        super().quit(msg, e)
+    
+    def handleDisconnectError(self, p:packet.ErrorPacket, addr, e:error.DisconnectError):
+        match e:
+            case error.ServerDisconnectError():
+                self._quit(e)
+            case error.ClientDisconnectError():
+                pass # should not react to client disconnect
+            case _:
+                raise e # TODO: handle
+            
+    def mainloop(self, onQuit=None):
+        while self.isRunning.is_set():
+            pass
+        if onQuit == None:
+            self.quit(e=self.exitError)
+        else:
+            onQuit(e=self.exitError)
     
 if __name__ == "__main__":
     from time import sleep

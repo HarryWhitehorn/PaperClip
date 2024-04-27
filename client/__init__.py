@@ -30,5 +30,3 @@ else:
 
 if offset != None:
     C_PORT += offset
-    
-print(C_PORT)

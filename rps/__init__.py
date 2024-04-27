@@ -20,3 +20,5 @@ class Outcome:
     LOOSE = 0
     WIN = 1
     DRAW = 2
+    
+QUEUE_TIMEOUT = 10

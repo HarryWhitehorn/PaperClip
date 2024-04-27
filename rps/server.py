@@ -1,11 +1,11 @@
-from queue import Queue
+from queue import Queue, Empty
 from threading import Lock
 import random
 import json
 
 from udp.server import Server as UdpServer
 
-from . import bcolors, Choice, Outcome
+from . import bcolors, Choice, Outcome, QUEUE_TIMEOUT
 
 MAX_PLAYERS = 2
 
@@ -89,12 +89,15 @@ class Server:
     def getChoices(self):
         choices = {}
         while self.isRunning:
-            addr, data = self.recvQueue.get()
-            choices[addr] = data["choice"]
-            if len(choices) == 2:
-                choices = [(addr, choice) for addr, choice in choices.items()]
-                self.recvQueue.task_done()
-                return choices
+            try:
+                addr, data = self.recvQueue.get(timeout=QUEUE_TIMEOUT)
+                choices[addr] = data["choice"]
+                if len(choices) == 2:
+                    choices = [(addr, choice) for addr, choice in choices.items()]
+                    self.recvQueue.task_done()
+                    return choices
+            except Empty:
+                pass # check still running
     
     def playerJoin(self, addr, accountId):
         with self.playersLock:
@@ -165,6 +168,9 @@ class Server:
                         replies[addr] |= {"score":scores[addr], "otherScore":[v for k,v in scores.items() if k != addr][0]}
                         self.send(addr, replies[addr])
         finally:
-            self.isRunning = False
-            self.udpServer.isRunning.clear()
+            self.quit()
+            
+    def quit(self):
+        self.isRunning = False
+        self.udpServer.quit()
             

@@ -7,7 +7,7 @@ import socket
 import json
 import time
 
-from . import bcolors, node, packet, auth, logger
+from . import bcolors, node, packet, auth, error, logger
 from . import HEARTBEAT_MAX_TIME, HEARTBEAT_MIN_TIME, MAX_CLIENTS
 
 class Server(node.Node):
@@ -48,6 +48,7 @@ class Server(node.Node):
             if not self.validateHandshake(addr, p.data):
                 # raise ValueError(f"Local finished value does not match peer finished value {p.data}")
                 logger.error(f"Local finished value does not match peer finished value {p.data}")
+                self.queueError(addr, major=error.Major.CONNECTION, minor=error.ConnectionErrorCodes.FINISH_INVALID, data=b"Invalid finish.")
             else:
                 # print(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
                 logger.info(f"{bcolors.OKGREEN}# Handshake with {addr} successful.{bcolors.ENDC}")
@@ -63,6 +64,7 @@ class Server(node.Node):
                 if not valid:
                     # raise ValueError(f"Invalid peer cert {p.certificate}")
                     logger.error(f"Invalid peer cert {p.certificate}")
+                    self.queueError(addr, major=error.Major.CONNECTION, minor=error.ConnectionErrorCodes.CERTIFICATE_INVALID, data=b"Invalid Certificate.")
                 else:
                     self.makeClient(addr, p.certificate, accountId)
                     self.regenerateEcKey(addr)
@@ -73,7 +75,7 @@ class Server(node.Node):
             else:
                 # print(f"{bcolors.FAIL}# Handshake with {addr} denied due to NO_SPACE.{bcolors.ENDC}")
                 logger.warning(f"{bcolors.FAIL}# Handshake with {addr} denied due to NO_SPACE.{bcolors.ENDC}")
-                # ToDo: send no space ERROR
+                self.queueError(addr, major=error.Major.CONNECTION, minor=error.ConnectionErrorCodes.NO_SPACE, data=b"Server is Full.")
         else:
             sessionKey = auth.generateSessionKey(self.getEcKey(addr), p.public_key)
         if addr in self.clients:
@@ -84,6 +86,7 @@ class Server(node.Node):
                 if not valid:
                     # raise ValueError(f"Invalid peer cert {p.certificate}")
                     logger.warning(f"Invalid peer cert {p.certificate}")
+                    self.queueError(addr, major=error.Major.CONNECTION, minor=error.ConnectionErrorCodes.CERTIFICATE_INVALID, data=b"Invalid Certificate.")
                 else:
                     self.regenerateEcKey(addr)
                     # self.clients[addr].cert = p.certificate # shouldn't change
@@ -96,6 +99,12 @@ class Server(node.Node):
     def _testPacket(self, addr):
         flags=packet.lazyFlags(packet.Flag.FRAG ,packet.Flag.RELIABLE)
         self.queueDefault(addr, flags=flags, data=b"Hello World To You Too")
+    
+    def queueDisconnect(self, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
+        with self.clientsLock:
+            clientAddrs = [addr for addr in self.clients]
+        for addr in clientAddrs:
+            self.queueError(addr, flags=flags, major=error.Major.DISCONNECT, minor=error.DisconnectErrorCodes.SERVER_DISCONNECT, data=data)
     
     def getSessionKey(self, clientAddr):
         with self.clientsLock:
@@ -155,11 +164,11 @@ class Server(node.Node):
     
     def getSequenceId(self, clientAddr):
         with self.clientsLock:
-            return self.clients[clientAddr].sequenceId
+            return self.clients[clientAddr].sequenceId if clientAddr in self.clients else None
     
     def getQueue(self, clientAddr):
         with self.clientsLock:
-            return self.clients[clientAddr].queue
+            return self.clients[clientAddr].queue if clientAddr in self.clients else self.queue
     
     def getSequenceIdLock(self, clientAddr):
         with self.clientsLock:
@@ -196,7 +205,7 @@ class Server(node.Node):
         
     def getClientId(self, clientAddr):
         with self.clientsLock:
-            return self.clients[clientAddr].accountId
+            return self.clients[clientAddr].accountId 
         
     def getClientIds(self):
         with self.clientsLock:
@@ -221,10 +230,10 @@ class Server(node.Node):
                     if self.getHandshake(addr): # client handshake complete => allow all packet types
                         self.receive(p, addr)
                     else:
-                        if p.packet_type in (packet.Type.AUTH, packet.Type.ACK): # client handshake incomplete => drop all non-AUTH | non-ACK packets
+                        if p.packet_type in (packet.Type.AUTH, packet.Type.ACK, packet.Type.ERROR): # client handshake incomplete => drop all non-AUTH | non-ACK | non-ERROR packets
                             self.receive(p, addr)
                 else:
-                    if p.packet_type == packet.Type.AUTH: # client not exists => drop all non-AUTH packets
+                    if p.packet_type in (packet.Type.AUTH, packet.Type.ERROR): # client not exists => drop all non-AUTH | non-ERROR packets
                         self.receive(p, addr)
                     else:
                         # print(f"{bcolors.WARNING}! {addr} :{bcolors.ENDC} {bcolors.WARNING}{p}{bcolors.ENDC}")
@@ -257,13 +266,15 @@ class Server(node.Node):
             self.clients[clientAddr] = c
     
     def removeClient(self, clientAddr, debugStr=""):
-        with self.clientsLock:
-            # print(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
-            logger.info(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
-            self.clients[clientAddr].isRunning.clear()
-            del self.clients[clientAddr]
-            if self.onClientLeave:
-                self.onClientLeave(clientAddr, self.getClientId(clientAddr))
+        if self.checkClientExists(clientAddr):
+            cId = self.getClientId(clientAddr)
+            with self.clientsLock:
+                # print(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
+                logger.info(f"{bcolors.FAIL}# Client {clientAddr} was removed{' '+debugStr}.{bcolors.ENDC}")
+                self.clients[clientAddr].isRunning.clear()
+                del self.clients[clientAddr]
+                if self.onClientLeave:
+                    self.onClientLeave(clientAddr, cId)
     
     # misc
     def startThreads(self):
@@ -284,6 +295,23 @@ class Server(node.Node):
         except: 
             # Cert server unresponsive
             return False
+        
+    def quit(self, msg="quit call", e=None):
+        self.queueDisconnect(data=msg.encode())
+        self.queue.join()
+        e = super().quit(msg, e)
+        if self.heartbeatThread.is_alive:
+            self.heartbeatThread.join()
+        return e
+    
+    def handleDisconnectError(self, p:packet.ErrorPacket, addr, e:error.DisconnectError):
+        match e:
+            case error.ServerDisconnectError():
+                pass # should not react to server disconnect
+            case error.ClientDisconnectError():
+                self.removeClient(addr, "The client has closed")
+            case _:
+                raise e # TODO: handle
         
 if __name__ == "__main__":
     from time import sleep

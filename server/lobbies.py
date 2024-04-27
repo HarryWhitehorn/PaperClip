@@ -39,9 +39,9 @@ class Lobby:
     def start(self) -> None:
         self.severThread.start()
         
-    def stop(self) -> None:
-        self.gameServer.udpServer.isRunning.clear()
+    def quit(self) -> None:
         self.gameServer.isRunning = False
+        self.gameServer.quit()
                 
     def onJoin(self, addr, accountId):
         self.members.append(accountId)
@@ -130,7 +130,7 @@ class LobbyHandler:
             lobbyIndex = [index for index, lobby in enumerate(self.lobbies) if lobby.addr == addr][:1]
             lobbyIndex = lobbyIndex[0] if len(lobbyIndex) > 0 else None
             if lobbyIndex != None:
-                self.lobbies[lobbyIndex].stop()
+                self.lobbies[lobbyIndex].quit()
                 del self.lobbies[lobbyIndex]
                 return True
             else:
@@ -175,3 +175,13 @@ class LobbyHandler:
                     logger.info(f"{bcolors.FAIL}# Lobby {lobby} was removed due to PRUNE (delta={lobby._heartbeatDelta()}){bcolors.ENDC}")
                     self.deleteLobby(lobby.addr)
             time.sleep(PRUNE_TIME)
+            
+    def quit(self):
+        logger.info(f"{bcolors.FAIL}# Shuting down lobbies{bcolors.ENDC}")
+        self.isRunning = False
+        with self.lobbiesLock:
+                lobbies = self.lobbies.copy()
+        for lobby in lobbies:
+            lobby.quit()
+        logger.info(f"{bcolors.FAIL}# Shuting down complete{bcolors.ENDC}")
+        

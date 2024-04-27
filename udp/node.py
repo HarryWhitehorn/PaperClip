@@ -1,17 +1,18 @@
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
 from cryptography.x509 import Certificate
-from threading import Thread, Lock, Event
+from threading import Thread, Lock, Event, get_ident
 from socket import socket as Socket
 from socket import SOCK_DGRAM
 from datetime import datetime
 from queue import Queue, Empty
+import os, signal
 import requests
 import base64
 import random
 import time
 import json
 
-from . import bcolors, packet, auth, logger
+from . import bcolors, packet, error, auth, logger
 from . import SOCKET_BUFFER_SIZE, SEND_SLEEP_TIME, QUEUE_TIMEOUT, SOCKET_TIMEOUT
 
 ACK_RESET_SIZE = (2**packet.ACK_BITS_SIZE) // 2
@@ -43,6 +44,8 @@ class Node:
     socket: Socket|None
     # callback
     onReceiveData: None
+    # exitCode
+    exitError: error.PaperClipError|None
     
     def __init__(self, addr:tuple[str,int], cert:Certificate|None=None, accountId:int|None=None, sendLock:Lock=Lock(), socket:Socket|None=Socket(type=SOCK_DGRAM), onReceiveData:None=None) -> None:
         self.addr = addr
@@ -70,6 +73,8 @@ class Node:
         self.socket.settimeout(SOCKET_TIMEOUT)
         # callback
         self.onReceiveData = onReceiveData
+        # exit
+        self.exitError = None
     
     def bind(self, addr):
         self.socket.bind(addr)
@@ -182,8 +187,12 @@ class Node:
     def sendPacket(self, addr, p):
         with self.sendLock:
             # print(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-            logger.info(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-            self.socket.sendto(p.pack(p), (addr[0],addr[1]))
+            try:
+                self.socket.sendto(p.pack(p), (addr[0],addr[1]))
+                logger.info(f"{bcolors.OKBLUE}> {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
+            except error.PacketError as e:
+                logger.error(f"{bcolors.FAIL}# > {bcolors.ENDC}{bcolors.OKBLUE}{addr} :{bcolors.ENDC} {bcolors.FAIL}{type(e).__name__}:{e.args[0] if len(e.args) > 0 else ''}{p}{bcolors.ENDC}")
+
         
     def sendQueue(self):
         while self.isRunning.is_set():
@@ -250,35 +259,61 @@ class Node:
         p = packet.HeartbeatPacket(sequence_id=self.getSequenceId(addr), flags=flags, heartbeat=heartbeat, data=data)
         self.incrementSequenceId(addr)
         self.queuePacket(addr, p)
-    
+        
+    def queueError(self, addr, major:error.Major|int, minor:error.Minor|int, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
+        sId = self.getSequenceId(addr)
+        p = packet.ErrorPacket(sequence_id=sId if sId != None else 0, flags=flags, major=major, minor=minor, data=data)
+        if sId != None:
+            self.incrementSequenceId(addr)
+        self.queuePacket(addr, p)
+        
+    def queueDisconnect(self, addr, flags=[0 for _ in range(packet.FLAGS_SIZE)], data=None):
+        self.queueError(addr, flags=flags, major=error.Major.DISCONNECT, minor=error.DisconnectErrorCodes.DISCONNECT, data=data)
+        
     # receives
     def receivePacket(self):
         try:
             data, addr = self.socket.recvfrom(SOCKET_BUFFER_SIZE)
-            p = packet.unpack(data)
-            return p, addr
+            try:
+                p = packet.unpack(data)
+                return p, addr
+            except error.PacketError as e:
+                logger.error(f"{bcolors.FAIL}# < {bcolors.ENDC}{bcolors.OKBLUE}{addr} :{bcolors.ENDC} {bcolors.FAIL}{type(e).__name__}:{e.args[0] if len(e.args) > 0 else ''}{p}{bcolors.ENDC}")
+                major, minor = error.getErrorCod(e)
+                self.queueError(addr, major, minor)
+                return None, None
         except ConnectionResetError:
             return None, None
         except TimeoutError:
             return None, None
     
-    def receive(self, p, addr):
+    def receive(self, p:packet.Packet, addr):
         if p != None:
             if self.handleFlags(p, addr):
                 # print(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
-                logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
                 match (p.packet_type):
                     case packet.Type.DEFAULT:
+                        logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
                         return self.receiveDefault(p, addr)
                     case packet.Type.ACK:
+                        logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
                         return self.receiveAck(p, addr)
                     case packet.Type.AUTH:
+                        logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
                         return self.receiveAuth(p, addr)
                     case packet.Type.HEARTBEAT:
+                        logger.info(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.OKCYAN}{p}{bcolors.ENDC}")
                         return self.receiveHeartbeat(p, addr)
+                    case packet.Type.ERROR:
+                        logger.warning(f"{bcolors.OKBLUE}< {addr} :{bcolors.ENDC} {bcolors.FAIL}{p}{bcolors.ENDC}")
+                        try:
+                            return self.receiveError(p, addr)
+                        except error.PaperClipError as e:
+                            self.handleError(p, addr, e)
                     case _:
                         # raise TypeError(f"Unknown packet type '{p.packet_type}' for packet {p}")
                         logger.warning(f"Unknown packet type '{p.packet_type}' for packet {p}")
+                        self.queueError(addr, major=error.Major.PACKET, minor=error.PacketErrorCodes.PACKET_TYPE, data=p.sequence_id)
     
     def receiveDefault(self, p:packet.Packet, addr):
         self.setNewestSeqId(addr, self.getNewerSeqId(self.getNewestSeqId(addr), p.sequence_id))
@@ -305,6 +340,9 @@ class Node:
             self.queueHeartbeat(addr, heartbeat=True)
             pass
         return (p, addr)
+    
+    def receiveError(self, p:packet.ErrorPacket, addr):
+        raise error.getError(p.major, p.minor)(p.data)
         
     def listen(self):
         # print(f"{bcolors.HEADER}Listening @ {self.socket.getsockname()}{bcolors.ENDC}")
@@ -378,20 +416,63 @@ class Node:
             return True
         else:
             return False
+        
+    # error handle
+    def handleError(self, p:packet.ErrorPacket, addr, e:error.PaperClipError):
+        match e:
+            case error.ConnectionError():
+                self.handleConnectionError(p, addr, e)
+            case error.DisconnectError():
+                self.handleDisconnectError(p, addr, e)
+            case error.PacketError():
+                self.handlePacketError(p, addr, e)
+            case _:
+                raise e # TODO: handle
+    
+    def handleConnectionError(self, p:packet.ErrorPacket, addr, e:error.ConnectionError):
+        match e:
+            case error.NoSpaceError():
+                return self.quit("no server space", e)
+            case error.CertificateInvalidError():
+                return self.quit("invalid certificate", e)
+            case error.FinishInvalidError():
+                return self.quit("invalid finish", e)
+            case _:
+                raise e # TODO: handle
+            
+    def handleDisconnectError(self, p:packet.ErrorPacket, addr, e:error.DisconnectError):
+        match e:
+            case error.ServerDisconnectError:
+                pass # overwrite
+            case error.ClientDisconnectError:
+                pass # overwrite
+            case _:
+                raise e # TODO: handle
+    
+    def handlePacketError(self, p:packet.ErrorPacket, addr, e:error.PacketError):
+        match e:
+            case error.VersionError():
+                pass
+            case error.PacketTypeError():
+                pass
+            case error.FlagsError():
+                pass
+            case error.SequenceIdError():
+                pass
+            case error.FragmentIdError():
+                pass
+            case error.FragmentNumberError():
+                pass
+            case error.InitVectorError():
+                pass
+            case error.CompressionError():
+                pass
+            case error.ChecksumError():
+                pass
+            case _:
+                raise e # TODO: handle
             
     # util
-    @staticmethod
-    def encryptData(data:bytes, sessionKey:bytes, initVector:bytes=auth.generateInitVector()) -> tuple[bytes, bytes]:
-        cipher, initVector = auth.generateCipher(sessionKey, initVector)
-        data = auth.encryptBytes(cipher, data)
-        return data, initVector
-    
-    @staticmethod
-    def decryptData(data:bytes, sessionKey:bytes, initVector:bytes) -> tuple[bytes, bytes]:
-        cipher, initVector = auth.generateCipher(sessionKey, initVector)
-        data = auth.decryptBytes(cipher, data)
-        return data, initVector
-    
     @staticmethod
     def packRecvAckBits(recvAckBits, ackId) -> list[bool|None]:
         return [recvAckBits[i%2**packet.ACK_BITS_SIZE] for i in range(ackId-1, ackId-1-packet.ACK_BITS_SIZE, -1)]
@@ -413,13 +494,29 @@ class Node:
         self.handshake = Node._generateFinished(self.sessionKey) == finished
         return self.handshake
     
-    def quit(self):
-        logger.info(f"{bcolors.FAIL}# Quitting due to quit call.{bcolors.ENDC}")
+    def quit(self, msg="quit call", e=None):
+        logMsg = f"{bcolors.FAIL}# Quitting due to {msg}.{bcolors.ENDC}"
+        if e != None:
+            logger.critical(logMsg)
+        else:
+            logger.info(logMsg)
         self.isRunning.clear()
-        self.inboundThread.join()
-        self.outboundThread.join()
+        if self.inboundThread.is_alive() and get_ident() != self.inboundThread.ident:
+            self.inboundThread.join()
+        if self.outboundThread.is_alive() and get_ident() != self.outboundThread.ident:
+            self.outboundThread.join()
         self.socket.close()
         logger.info(f"{bcolors.FAIL}# Quit finished.{bcolors.ENDC}")
+        if e != None:
+            self.exitError = e
+            if get_ident() in (self.inboundThread.ident, self.outboundThread.ident):
+                pass
+            else:
+                raise e
+            
+    def _quit(self, e=None):
+        self.exitError = e
+        self.isRunning.clear()
             
     
 if __name__ == "__main__":

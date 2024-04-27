@@ -1,8 +1,10 @@
 from flask import Flask
-from .models import *
 import dotenv
 import os
+
 from udp import logger
+
+from .models import *
 
 dotenv.load_dotenv()
 PRUNE_TIME = int(os.environ.get("PRUNE_TIME"))
