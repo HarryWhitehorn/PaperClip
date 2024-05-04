@@ -1,18 +1,16 @@
-from queue import Queue
+from queue import Queue, Empty
 from threading import Lock
 import random
 import json
 
 from udp.server import Server as UdpServer
 
-from . import bcolors, Choice, Outcome
-
-MAX_PLAYERS = 2
+from . import bcolors, Choice, Outcome, MIN_PLAYERS, MAX_PLAYERS, QUEUE_TIMEOUT
 
 class Server:
     isRunning:bool
     recvBuffer: Queue
-    players: dict[tuple[str, int], int]
+    players: dict[tuple[str, int], dict[str,int]]
     playersLock: Lock
     udpServer: UdpServer
     onClientJoin: None
@@ -88,26 +86,29 @@ class Server:
     
     def getChoices(self):
         choices = {}
-        while True:
-            addr, data = self.recvQueue.get()
-            choices[addr] = data["choice"]
-            if len(choices) == 2:
-                break
-        choices = [(addr, choice) for addr, choice in choices.items()]
-        self.recvQueue.task_done()
-        return choices
+        while self.isRunning:
+            try:
+                addr, data = self.recvQueue.get(timeout=QUEUE_TIMEOUT)
+                choices[addr] = data["choice"]
+                if len(choices) == 2:
+                    choices = [(addr, choice) for addr, choice in choices.items()]
+                    self.recvQueue.task_done()
+                    return choices
+            except Empty:
+                pass # check still running
     
-    def playerJoin(self, addr):
+    def playerJoin(self, addr, accountId):
         with self.playersLock:
-            self.players[addr] = 0
+            self.players[addr] = {"score":0,"accountId":accountId}
         if self.onClientJoin:
-            self.onClientJoin(addr)
+            self.onClientJoin(addr, accountId)
         
-    def playerLeave(self, addr):
+    def playerLeave(self, addr, accountId):
         with self.playersLock:
+            # TODO: submit score
             del self.players[addr]
         if self.onClientLeave:
-            self.onClientLeave(addr)
+            self.onClientLeave(addr, accountId)
             
     def isNotFull(self):
         return self.udpServer.isNotFull()
@@ -133,7 +134,15 @@ class Server:
                 
     def incrementPlayer(self, addr) -> None:
         with self.playersLock:
-            self.players[addr] += 1
+            self.players[addr]["score"] += 1
+            
+    def getAccountId(self, addr):
+        with self.playersLock:
+            return self.players[addr]["accountId"]
+        
+    def getAccountIds(self, addr):
+        with self.playersLock:
+            return [player["accountId"] for player in self.players.values()]
         
     @property
     def playerCount(self):
@@ -157,6 +166,9 @@ class Server:
                         replies[addr] |= {"score":scores[addr], "otherScore":[v for k,v in scores.items() if k != addr][0]}
                         self.send(addr, replies[addr])
         finally:
-            self.isRunning = False
-            self.udpServer.isRunning.clear()
+            self.quit()
+            
+    def quit(self):
+        self.isRunning = False
+        self.udpServer.quit()
             

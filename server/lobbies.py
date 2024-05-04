@@ -2,14 +2,15 @@ from threading import Thread, Lock
 import datetime
 import time
 
+from udp import bcolors
 from udp.server import Server
 from rps.server import Server as RpsSever
 
-PRUNE_TIME = 58
+from . import PRUNE_TIME, logger
 
 class Lobby:
     id: int
-    members: list[tuple[str, int]]
+    members: list[int]
     addr: int
     gameServer: Server
     severThread: Thread
@@ -28,24 +29,26 @@ class Lobby:
             case _:
                 self.gameServer = None
         if self.gameServer != None:
-            self.severThread = Thread(target=self.gameServer.mainloop, daemon=True)
+            self.severThread = Thread(name=f"{self.id}:Gameloop",target=self.gameServer.mainloop, daemon=True)
         else:
             raise ValueError(f"No such game with id={gameId}")
             
+    def __str__(self) -> str:
+        return f"<id={self.id}, addr={self.addr}, gameId=<{self.gameId}>>"
         
     def start(self) -> None:
         self.severThread.start()
         
-    def stop(self) -> None:
-        self.gameServer.udpServer.isRunning.clear()
+    def quit(self) -> None:
         self.gameServer.isRunning = False
+        self.gameServer.quit()
                 
-    def onJoin(self, addr):
-        self.members.append(addr)
+    def onJoin(self, addr, accountId):
+        self.members.append(accountId)
         self.heartbeat = True
     
-    def onLeave(self, addr):
-        self.members.remove(addr)
+    def onLeave(self, addr, accountId):
+        self.members.remove(accountId)
         if self.isEmpty():
             self.heartbeat = datetime.datetime.now()
     
@@ -91,7 +94,7 @@ class LobbyHandler:
         self.nextId = 1
         self.lobbies = []
         self.lobbiesLock = Lock()
-        self.pruneThread = Thread(target=self.prune, daemon=True)
+        self.pruneThread = Thread(name=f"HOST:Prune", target=self.prune, daemon=True)
         self.isRunning = True
         self.rsaKey = rsaKey
         # 
@@ -127,7 +130,7 @@ class LobbyHandler:
             lobbyIndex = [index for index, lobby in enumerate(self.lobbies) if lobby.addr == addr][:1]
             lobbyIndex = lobbyIndex[0] if len(lobbyIndex) > 0 else None
             if lobbyIndex != None:
-                self.lobbies[lobbyIndex].stop()
+                self.lobbies[lobbyIndex].quit()
                 del self.lobbies[lobbyIndex]
                 return True
             else:
@@ -141,6 +144,10 @@ class LobbyHandler:
     def getNotFull(self) -> list[Lobby]:
         with self.lobbiesLock:
             return [lobby for lobby in self.lobbies if lobby.isNotFull()]
+        
+    def getMember(self, accountId) -> list[Lobby]:
+        with self.lobbiesLock:
+            return [lobby for lobby in self.lobbies if lobby.isNotFull() and accountId in lobby.getMembers()]
     
     def getLobby(self, lobbyId:int) -> Lobby:
         with self.lobbiesLock:
@@ -164,6 +171,17 @@ class LobbyHandler:
             for lobby in lobbies:
                 # print(f"{lobby}, {lobby.isPrune()}, {lobby.heartbeat}")
                 if lobby.isPrune():
-                    print(f"DELETING LOBBY {lobby} due to PRUNE ({lobby._heartbeatDelta()})")
+                    # print(f"{bcolors.FAIL}# Lobby {lobby} was removed due to PRUNE (delta={lobby._heartbeatDelta()}){bcolors.ENDC}")
+                    logger.info(f"{bcolors.FAIL}# Lobby {lobby} was removed due to PRUNE (delta={lobby._heartbeatDelta()}){bcolors.ENDC}")
                     self.deleteLobby(lobby.addr)
             time.sleep(PRUNE_TIME)
+            
+    def quit(self):
+        logger.info(f"{bcolors.FAIL}# Shuting down lobbies{bcolors.ENDC}")
+        self.isRunning = False
+        with self.lobbiesLock:
+                lobbies = self.lobbies.copy()
+        for lobby in lobbies:
+            lobby.quit()
+        logger.info(f"{bcolors.FAIL}# Shuting down complete{bcolors.ENDC}")
+        

@@ -1,6 +1,6 @@
 import zlib
 
-MAX_FRAGMENT_SIZE = 988
+from . import MAX_FRAGMENT_SIZE
 
 def compressData(data:bytes) -> bytes:
     # default speed

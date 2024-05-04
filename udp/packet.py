@@ -3,7 +3,7 @@ from cryptography.x509 import Certificate
 from enum import Enum
 import struct
 
-from . import auth, utils
+from . import auth, utils, error, logger
 
 VERSION = 0
 # SIZE in Bits
@@ -23,6 +23,7 @@ class Type(Enum):
     ACK = 1
     AUTH = 2
     HEARTBEAT = 3
+    ERROR = 4
     
 class Flag(Enum):
     RELIABLE = 0
@@ -65,40 +66,61 @@ class Packet:
     
     # util
     def encryptData(self, session_key:bytes) -> None:
-        self.flags[Flag.ENCRYPTED.value] = 1
-        iv = self.init_vector if self.init_vector != None else auth.generateInitVector()
-        cipher, iv = auth.generateCipher(session_key, iv)
-        self.init_vector = iv
-        self.data = auth.encryptBytes(cipher, self.data)
+        try:
+            self.flags[Flag.ENCRYPTED.value] = 1
+            iv = self.init_vector if self.init_vector != None else auth.generateInitVector()
+            cipher, iv = auth.generateCipher(session_key, iv)
+            self.init_vector = iv
+            self.data = auth.encryptBytes(cipher, self.data)
+        except Exception as e:
+            raise error.InitVectorError(e)
         
     def decryptData(self, session_key:bytes) -> None:
-        if self.flags[Flag.ENCRYPTED.value]:
-            cipher = auth.generateCipher(session_key, self.init_vector)[0]
-            self.data = auth.decryptBytes(cipher, self.data)
-        else:
-            raise ValueError(f"Packet {self} is not flagged as ENCRYPTED ({self.flags}).")
+        try:
+            if self.flags[Flag.ENCRYPTED.value]:
+                cipher = auth.generateCipher(session_key, self.init_vector)[0]
+                self.data = auth.decryptBytes(cipher, self.data)
+            else:
+                # raise ValueError(f"Packet {self} is not flagged as ENCRYPTED ({self.flags}).")
+                logger.warning(f"Packet {self} is not flagged as ENCRYPTED ({self.flags}).")
+        except Exception as e:
+            raise error.InitVectorError(e)
         
     def compressData(self):
-        self.flags[Flag.COMPRESSED.value] = 1
-        self.data = utils.compressData(self.data)
+        try:
+            self.flags[Flag.COMPRESSED.value] = 1
+            self.data = utils.compressData(self.data)
+        except Exception as e:
+            raise error.CompressionError(e)
         
     def decompressData(self):
-        if self.flags[Flag.COMPRESSED.value]:
-            self.data = utils.decompressData(self.data)
-        else:
-            raise ValueError(f"Packet {self} is not flagged as COMPRESSED ({self.flags}).")
+        try:
+            if self.flags[Flag.COMPRESSED.value]:
+                self.data = utils.decompressData(self.data)
+            else:
+                # raise ValueError(f"Packet {self} is not flagged as COMPRESSED ({self.flags}).")
+                logger.warning(f"Packet {self} is not flagged as COMPRESSED ({self.flags}).")
+        except Exception as e:
+            raise error.CompressionError(e)
         
     def setChecksum(self):
-        self.flags[Flag.CHECKSUM.value] = 1
-        data = self.data if self.data != None else b""
-        self.checksum = utils.generateChecksum(data) 
+        try:
+            self.flags[Flag.CHECKSUM.value] = 1
+            data = self.data if self.data != None else b""
+            self.checksum = utils.generateChecksum(data)
+        except Exception as e:
+            raise error.ChecksumError(e)
         
     def validateChecksum(self) -> bool:
-        if self.flags[Flag.CHECKSUM.value]:
-            data = self.data if self.data != None else b""
-            return self.checksum == utils.generateChecksum(data)
-        else:
-            raise ValueError(f"Packet {self} is not flagged as CHECKSUM ({self.flags}).")
+        try:
+            if self.flags[Flag.CHECKSUM.value]:
+                data = self.data if self.data != None else b""
+                return self.checksum == utils.generateChecksum(data)
+            else:
+                # raise ValueError(f"Packet {self} is not flagged as CHECKSUM ({self.flags}).")
+                logger.warning(f"Packet {self} is not flagged as CHECKSUM ({self.flags}).")
+        except Exception as e:
+            raise error.ChecksumError(e)
     
     @staticmethod
     def _getHeader(p):
@@ -124,11 +146,15 @@ class Packet:
             data = utils.defragmentData([frag.data for frag in frags])
             return cls(**header, data=data)
         else:
-            raise ValueError(f"Packet {frags[0]} is not flagged as FRAG ({frags[0].flags}).")
+            # raise ValueError(f"Packet {frags[0]} is not flagged as FRAG ({frags[0].flags}).")
+            logger.warning(f"Packet {frags[0]} is not flagged as FRAG ({frags[0].flags}).")
 
     # dunder
     def __str__(self) -> str:
-        s = self.pack(self)
+        try:
+            s = self.pack(self)
+        except error.PaperClipError:
+            s = b""
         data = self.data if self.data != None else b""
         pSize = len(s)
         dSize = len(data)
@@ -145,24 +171,36 @@ class Packet:
     # encode / decode
     @staticmethod    
     def _encodeVersion(version:int) -> int:
-        return version
+        try:
+            return version
+        except Exception as e:
+            raise error.VersionError(e)
     
     @staticmethod
     def _decodeVersion(version:int) -> int:
-        return version
+        try:
+            return version
+        except Exception as e:
+            raise error.VersionError(e)
     
     @staticmethod
     def _encodeType(packet_type:Type) -> int:
-        return packet_type.value
+        try:
+            return packet_type.value
+        except Exception as e:
+            raise error.PacketTypeError(e)
     
     @staticmethod
     def _decodeType(packet_type:int) -> Type:
-        return Type(packet_type)
+        try:
+            return Type(packet_type)
+        except Exception as e:
+            raise error.PacketTypeError(e)
     
     @staticmethod
     def encodeVersionType(version:int, packet_type:Type) -> bytes:
         return struct.pack("!B",(Packet._encodeVersion(version)*16)|Packet._encodeType(packet_type))
-    
+        
     @staticmethod
     def decodeVersionType(versionType:bytes) -> tuple[int,Type]:
         versionType = struct.unpack("!B", versionType)[0]
@@ -172,56 +210,90 @@ class Packet:
     
     @staticmethod
     def encodeFlags(flags:list[int]) -> bytes:
-        return struct.pack("!B",int("".join(map(str,flags)),2))
+        try:
+            return struct.pack("!B",int("".join(map(str,flags)),2))
+        except Exception as e:
+            raise error.FlagsError(e)
     
     @staticmethod
     def decodeFlags(flags:bytes) -> list[int]:
-        flags = struct.unpack("!B",flags)[0]
-        flags = [(flags>>i)&1 for i in range(FLAGS_SIZE)]
-        flags.reverse()
-        return flags
+        try:
+            flags = struct.unpack("!B",flags)[0]
+            flags = [(flags>>i)&1 for i in range(FLAGS_SIZE)]
+            flags.reverse()
+            return flags
+        except Exception as e:
+            raise error.FlagsError(e)
     
     @staticmethod
     def encodeSequenceId(sequence_id:int) -> bytes:
-        return struct.pack("!I",sequence_id)
+        try:
+            return struct.pack("!I",sequence_id)
+        except Exception as e:
+            raise error.SequenceIdError(e)
     
     @staticmethod
     def decodeSequenceId(sequence_id:bytes) -> int:
-        return struct.unpack("!I",sequence_id)[0]
+        try:
+            return struct.unpack("!I",sequence_id)[0]
+        except Exception as e:
+            raise error.SequenceIdError(e)
     
     @staticmethod
     def encodeFragmentId(fragment_id:int) -> bytes:
-        return struct.pack("!B", fragment_id)
+        try:
+            return struct.pack("!B", fragment_id)
+        except Exception as e:
+            raise error.FragmentIdError(e)
     
     @staticmethod
     def decodeFragmentId(fragment_id:bytes) -> int:
-        return struct.unpack("!B", fragment_id)[0]
+        try:
+            return struct.unpack("!B", fragment_id)[0]
+        except Exception as e:
+            raise error.FragmentIdError(e)
     
     @staticmethod
     def encodeFragmentNumber(fragment_number:int) -> bytes:
-        return struct.pack("!B", fragment_number)
+        try:
+            return struct.pack("!B", fragment_number)
+        except Exception as e:
+            raise error.FragmentNumberError(e)
     
     @staticmethod
     def decodeFragmentNumber(fragment_number:bytes) -> int:
-        return struct.unpack("!B", fragment_number)[0]
-    
+        try:
+            return struct.unpack("!B", fragment_number)[0]
+        except Exception as e:
+            raise error.FragmentNumberError(e)
+        
     @staticmethod
     def encodeInitVector(init_vector:bytes) -> bytes:
-        # return struct.pack("!I", init_vector)
-        return init_vector
+        try:
+            return init_vector
+        except Exception as e:
+            raise error.InitVectorError(e)
     
     @staticmethod
     def decodeInitVector(init_vector: bytes) -> bytes:
-        # return struct.unpack("!I", init_vector)[0]
-        return init_vector
+        try:
+            return init_vector
+        except Exception as e:
+            raise error.InitVectorError(e)
     
     @staticmethod
     def encodeChecksum(checksum:int) -> bytes:
-        return struct.pack("!I", checksum)
-    
+        try:
+            return struct.pack("!I", checksum)
+        except Exception as e:
+            raise error.ChecksumError(e)
+        
     @staticmethod
     def decodeChecksum(checksum:bytes) -> int:
-        return struct.unpack("!I", checksum)[0]
+        try:
+            return struct.unpack("!I", checksum)[0]
+        except Exception as e:
+            raise error.ChecksumError(e)
     
     @staticmethod
     def encodeHeader(version:int, packet_type:Type,  flags:list[int], sequence_id:int, fragment_id:int|None=None, fragment_number:int|None=None, init_vector:int|None=None, checksum:int|None=None) -> bytes:
@@ -488,7 +560,93 @@ class HeartbeatPacket(Packet):
     def _packHeader(cls, p) -> bytes:
         header = cls.encodeHeader(p.version, p.packet_type, p.flags, p.sequence_id, p.fragment_id, p.fragment_number, p.init_vector, p.checksum, p.heartbeat)
         return header
+    
+class ErrorPacket(Packet):
+    _major: error.Major
+    _minor: error.Minor
+    def __init__(self, version: int = VERSION, packet_type: Type = Type.ERROR, flags: list[int] = [0 for _ in range(FLAGS_SIZE)], sequence_id: int = None, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, major:error.Major|int=error.Major.ERROR, minor:error.Minor|int=0, data: bytes | None = None) -> None:
+        super().__init__(version, Type.ERROR, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum, data)
+        self.major = major
+        self.minor = minor
+        
+    @property
+    def major(self):
+        return self._major
+    
+    @major.setter
+    def major(self, v:error.Major|int):
+        if isinstance(v, error.Major):
+            self._major = v
+        else:
+            self._major = error.Major(v)
+    
+    @property
+    def minor(self):
+        return self._minor
+    
+    @minor.setter
+    def minor(self, v:error.Minor|int):
+        if isinstance(v, error.Minor):
+            self._minor = v
+        else:
+            self._minor = error.getMinor(self.major,v)
             
+    # dunder
+    def __str__(self) -> str:
+        s = self.pack(self)
+        data = self.data if self.data != None else b""
+        pSize = len(s)
+        dSize = len(data)
+        # if len(data) > 12:
+        #     data = f"{data[:11]}...{str(data[-1:])[1:]}"
+        return f"<{self.version}:{self.packet_type.name} {self.sequence_id} {''.join(map(str,self.flags))} {self.major.name}.{self.minor.name}: {data} [{pSize}:{dSize}]>"
+    
+    # encode / decode
+    @staticmethod
+    def _encodeMajor(major:error.Major) -> int:
+        return major.value
+    
+    @staticmethod
+    def _decodeMajor(major:int) -> error.Major:
+        return error.Major(major)
+    
+    @staticmethod
+    def _encodeMinor(minor:error.Minor) -> int:
+        return minor.value if minor != error.Minor else 0
+    
+    @staticmethod
+    def _decodeMinor(major:error.Major, minor:int) -> error.Minor:
+        return error.getMinor(major, minor)
+    
+    def encodeMajorMinor(major:int, minor:int) -> bytes:
+        majorMinor = (ErrorPacket._encodeMajor(major)*16)|ErrorPacket._encodeMinor(minor)
+        return struct.pack("!B", majorMinor)
+    
+    def decodeMajorMinor(majorMinor:bytes) -> tuple[int, int]:
+        majorMinor = struct.unpack("!B", majorMinor)[0]
+        major = ErrorPacket._decodeMajor(majorMinor >> 4)
+        minor = ErrorPacket._decodeMinor(major, majorMinor & 15)
+        return major, minor
+    
+    @staticmethod
+    def encodeHeader(version: int, packet_type: Type, flags: list[int], sequence_id: int, fragment_id: int | None = None, fragment_number: int | None = None, init_vector: int | None = None, checksum: int | None = None, major:int=0, minor:int=0) -> bytes:
+        header = Packet.encodeHeader(version, packet_type, flags, sequence_id, fragment_id, fragment_number, init_vector, checksum)
+        majorMinor = ErrorPacket.encodeMajorMinor(major, minor)
+        return header + majorMinor
+    
+    @staticmethod
+    def decodeHeader(header: bytes) -> tuple[int, Type, list[int], int, int | None, int | None, int | None, int | None, int, int, int]:
+        *h, offset = Packet.decodeHeader(header)
+        major, minor = ErrorPacket.decodeMajorMinor(header[offset:offset+1])
+        offset += 1
+        return *h, major, minor, offset
+    
+    # pack / unpack
+    @classmethod
+    def _packHeader(cls, p) -> bytes:
+        header = cls.encodeHeader(p.version, p.packet_type, p.flags, p.sequence_id, p.fragment_id, p.fragment_number, p.init_vector, p.checksum, p.major, p.minor)
+        return header
+    
 def unpack(rawP):
     packet_type = Packet.decodeVersionType(rawP[0:1])[1]
     match (packet_type):
@@ -500,8 +658,11 @@ def unpack(rawP):
             return AuthPacket.unpack(rawP)
         case Type.HEARTBEAT:
             return HeartbeatPacket.unpack(rawP)
+        case Type.ERROR:
+            return ErrorPacket.unpack(rawP)
         case _:
-            raise TypeError(f"Invalid packet type {packet_type}")
+            # raise TypeError(f"Invalid packet type {packet_type}")
+            logger.warning(f"Cannot unpack '{packet_type}' due to invalid packet type.")
         
 if __name__ == "__main__":
     pass

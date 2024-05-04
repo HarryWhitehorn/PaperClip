@@ -1,14 +1,22 @@
 from flask import Blueprint, redirect, render_template, request, url_for, abort, jsonify, g
 from flask_httpauth import HTTPBasicAuth
-from . import Statement
-from .lobbies import LobbyHandler
-import udp.auth
 import base64
+import atexit
+
+import udp.auth
+
+from .lobbies import LobbyHandler
+from . import Statement
 
 main = Blueprint("main", __name__)
 auth = HTTPBasicAuth()
 rsaKey = udp.auth.generateRsaKey()
 lobbyHandler = LobbyHandler(rsaKey=rsaKey)
+
+def quit():
+    lobbyHandler.quit()
+    
+atexit.register(quit)
 
 @auth.verify_password
 def verifyPassword(username, password):
@@ -67,7 +75,7 @@ def validateCert():
         else:
             publicKey = rsaKey.public_key()
         valid = udp.auth.validateCertificate(certificate, publicKey)
-        return jsonify({"valid":valid})
+        return jsonify({"valid":valid, "account-id":attributes["account-id"]})
     else:
         abort(400) # missing args
 
@@ -169,8 +177,28 @@ def addFriend():
     friends = Statement.createFriends(account.id, other.id)
     return jsonify({"account":{"id":account.id,"username":account.username}, "other":{"id":other.id,"username":other.username}}), 201
 
+@main.route("/friend/remove", methods=["DELETE"])
+@auth.login_required
+def removeFriend():
+    username = request.json.get("username")
+    if username == None:
+        abort(400) # missing args
+    account = g.account
+    other = Statement.findAccount(username)
+    if other == None:
+        abort(404)
+    success = Statement.removeFriends(account.id, other.id)
+    if success:
+        return jsonify(data=[]), 204
+    else:
+        abort(404)
+
+
 @main.route("/lobby/friends")
 @auth.login_required
 def getFriendLobbies():
-    friends = Statement.getFriends(g.account)
-    # lobbies = Statement.findLobby()
+    friends = Statement.getFriends(g.account.id)
+    lobbyInfo = lambda lobby: {"lobby-id":lobby.id, "game-id":lobby.gameId, "game-name":Statement.getGame(lobby.gameId).name}
+    accountInfo = lambda account: {"account-id":account.id, "username":account.username}
+    lobbies = [{"account":accountInfo(account), "lobbies":[lobbyInfo(lobby) for lobby in lobbyHandler.getMember(account.id)]} for account in friends if len(lobbyHandler.getMember(account.id)) > 0]
+    return jsonify(lobbies)
