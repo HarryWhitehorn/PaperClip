@@ -1,3 +1,0 @@
-# Lit Rev
-
-## Heading One

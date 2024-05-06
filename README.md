@@ -8,11 +8,35 @@ This software includes code that is based on or derived from `inputimeout`, a pr
 
 Requires: `python 3.11+`, `mysql server`
 
+## mysql
+
+A mysql server must be set up containing a database called `paperclip`. The connection path must then be set in the `.env`. For convenience, the following is a example docker-compose to set up a mysql server and adminer (which can be used to create the `paperclip` database). This is the method use in testing thus the example set in the `.env`.
+
+```yaml
+# docker-compose.yaml
+version: '3.1'
+
+services:
+
+  adminer:
+    image: adminer
+    ports:
+      - 8080:8080
+
+  db:
+    image: mysql:5.6
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - 3306:3306
+```
+
 ## Python
 
 ### Setup
 
 Optional: `python -m venv env` and activate
+
 Install packages: `pip install -r requirements.txt`
 
 #### Env

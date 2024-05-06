@@ -1,14 +1,16 @@
-from rps.client import Client as RpsClient
-import udp.auth
 import base64
 import json
-import requests
-from requests.auth import HTTPBasicAuth
 import time
 
+import requests
+from requests.auth import HTTPBasicAuth
+
+import udp.auth
+from rps.client import Client as RpsClient
 from udp import bcolors
 
-from . import TCP_HOST, TCP_PORT, C_PORT, SERVER_URL
+from . import C_PORT, SERVER_URL, TCP_HOST
+
 
 class Client:
     id: int
@@ -18,56 +20,60 @@ class Client:
     token: str
     key: udp.auth.rsa.RSAPublicKey
     auth: HTTPBasicAuth
-    
-    def __init__(self, username:str, password:str, token:None=None) -> None:
+
+    def __init__(self, username: str, password: str, token: str | None = None) -> None:
         self.username = username
         self.password = password
         self.gameClient = None
-        self.token = token if token != None else self.getToken(self.username, self.password)
-        self.auth = HTTPBasicAuth(self.token,"")
+        self.token = (
+            token if token is not None else self.getToken(self.username, self.password)
+        )
+        self.auth = HTTPBasicAuth(self.token, "")
         self.getKey(password.encode())
 
     # auth
     @staticmethod
-    def getToken(username:str, password:str) -> str:
-        url = SERVER_URL+"/auth/token"
+    def getToken(username: str, password: str) -> str:
+        url = SERVER_URL + "/auth/token"
         r = requests.get(url, auth=(username, password))
         assert r.status_code == 200, r
         return r.json()["token"]
-        
-    @staticmethod        
-    def createAccount(username:str, password:str) -> str:
-        url = SERVER_URL+"/auth/register"
-        headers = {"Content-Type":"application/json"}
-        data = {"username":username, "password":password}
+
+    @staticmethod
+    def createAccount(username: str, password: str) -> str:
+        url = SERVER_URL + "/auth/register"
+        headers = {"Content-Type": "application/json"}
+        data = {"username": username, "password": password}
         r = requests.post(url, headers=headers, data=json.dumps(data))
         assert r.status_code == 201, r
         return r.json()["username"]
-    
-    def getKey(self, password:bytes):
-        url = SERVER_URL+"/auth/key"
+
+    def getKey(self, password: bytes) -> udp.auth.rsa.RSAPrivateKey:
+        url = SERVER_URL + "/auth/key"
         r = requests.get(url, auth=self.auth)
         assert r.status_code == 200, r
         self.id = r.json()["account-id"]
         key = base64.decodebytes(r.json()["key"].encode())
         self.key = udp.auth.getRsaPrivateFromDer(key, password)
-    
+
     # game
     def getGames(self) -> dict:
-        url = SERVER_URL+"/games/"
+        url = SERVER_URL + "/games/"
         r = requests.get(url, auth=self.auth)
         assert r.status_code == 200, r
         return r.json()
-    
+
     def getLobbies(self) -> dict:
-        url = SERVER_URL+"/lobby/all"
+        url = SERVER_URL + "/lobby/all"
         r = requests.get(url, auth=self.auth)
         assert r.status_code == 200, r
         return r.json()
-    
-    def createLobby(self, gameId:int|None=None, gameName:str|None=None) -> dict:
-        url = SERVER_URL+"/lobby/create"
-        headers = {"Content-Type":"application/json"}
+
+    def createLobby(
+        self, gameId: int | None = None, gameName: str | None = None
+    ) -> dict:
+        url = SERVER_URL + "/lobby/create"
+        headers = {"Content-Type": "application/json"}
         data = {}
         if gameId:
             data["game-id"] = gameId
@@ -76,18 +82,18 @@ class Client:
         r = requests.post(url, headers=headers, data=json.dumps(data), auth=self.auth)
         assert r.status_code == 201, r
         return r.json()
-    
-    def getLobby(self, lobbyId:int) -> dict:
-        url = SERVER_URL+"/lobby/"
-        headers = {"Content-Type":"application/json"}
-        data = {"lobby-id":lobbyId}
+
+    def getLobby(self, lobbyId: int) -> dict:
+        url = SERVER_URL + "/lobby/"
+        headers = {"Content-Type": "application/json"}
+        data = {"lobby-id": lobbyId}
         r = requests.get(url, headers=headers, data=json.dumps(data), auth=self.auth)
         assert r.status_code == 200
         return r.json()
-    
-    def findLobby(self, gameId:int|None=None, gameName:str|None=None) -> dict:
-        url = SERVER_URL+"/lobby/find"
-        headers = {"Content-Type":"application/json"}
+
+    def findLobby(self, gameId: int | None = None, gameName: str | None = None) -> dict:
+        url = SERVER_URL + "/lobby/find"
+        headers = {"Content-Type": "application/json"}
         data = {}
         if gameId:
             data["game-id"] = gameId
@@ -96,47 +102,54 @@ class Client:
         r = requests.get(url, headers=headers, data=json.dumps(data), auth=self.auth)
         assert r.status_code == 200, r
         return r.json()
-    
+
     # friends
     def friendLobbies(self) -> dict:
-        url = SERVER_URL+"/lobby/friends"
+        url = SERVER_URL + "/lobby/friends"
         r = requests.get(url, auth=self.auth)
         assert r.status_code == 200, r
         return r.json()
-    
+
     def getFriends(self) -> dict:
-        url = SERVER_URL+"/friends/"
+        url = SERVER_URL + "/friends/"
         r = requests.get(url, auth=self.auth)
         assert r.status_code == 200, r
         return r.json()
-    
-    def addFriend(self, username:str) -> dict:
-        url = SERVER_URL+"/friends/add"
-        headers = {"Content-Type":"application/json"}
-        data = {"username":username}
+
+    def addFriend(self, username: str) -> dict:
+        url = SERVER_URL + "/friends/add"
+        headers = {"Content-Type": "application/json"}
+        data = {"username": username}
         r = requests.post(url, headers=headers, data=json.dumps(data), auth=self.auth)
         assert r.status_code == 201, r
         return r.json()
-    
-    def removeFriend(self, username:str) -> bool:
-        url = SERVER_URL+"/friend/remove"
-        headers = {"Content-Type":"application/json"}
-        data = {"username":username}
+
+    def removeFriend(self, username: str) -> bool:
+        url = SERVER_URL + "/friend/remove"
+        headers = {"Content-Type": "application/json"}
+        data = {"username": username}
         r = requests.delete(url, headers=headers, data=json.dumps(data), auth=self.auth)
         assert r.status_code == 204, r
         return True
-    
+
     # join
-    def join(self, lobbyId:int):
+    def join(self, lobbyId: int) -> None:
         print(f"\n{bcolors.WARNING}Joining Lobby '{lobbyId}'{bcolors.ENDC}")
         data = self.getLobby(lobbyId)
-        if data["lobby-addr"] != None:
+        if data["lobby-addr"] is not None:
             match data["game-id"]:
                 case 1:
-                    self.gameClient = RpsClient((TCP_HOST,C_PORT), data["lobby-addr"], rsaKey=self.key, userId=self.id, username=self.username)
+                    self.gameClient = RpsClient(
+                        (TCP_HOST, C_PORT),
+                        data["lobby-addr"],
+                        rsaKey=self.key,
+                        userId=self.id,
+                        username=self.username,
+                    )
                     self.gameClient.connect()
                 case _:
                     raise ValueError(f"Unknown gameId {data['game-id']}")
+
 
 def mainloop():
     print(f"{bcolors.HEADER}\nLobby.{bcolors.ENDC}")
@@ -155,53 +168,62 @@ def mainloop():
             case _:
                 print(f"{bcolors.FAIL}Error: Invalid input '{option}'.{bcolors.ENDC}")
 
-def _register(username:str|None=None, password:str|None=None):
+
+def _register(username: str | None = None, password: str | None = None):
     print(f"{bcolors.HEADER}\nRegister.{bcolors.ENDC}")
     account = None
-    while account == None:
-        while username == None or password == None:
+    while account is None:
+        while username is None or password is None:
             try:
                 username = input("Username: ").strip()
                 password = input("Password: ").strip()
-            except:
+            except:  # noqa: E722
                 print(f"{bcolors.FAIL}Error: Invalid input.{bcolors.ENDC}")
         try:
             account = Client.createAccount(username, password)
         except AssertionError:
-            print(f"{bcolors.FAIL}Account could not be created. Please try again.{bcolors.ENDC}\n")
+            print(
+                f"{bcolors.FAIL}Account could not be created. Please try again.{bcolors.ENDC}\n"
+            )
             username = None
             password = None
     else:
         print(f"Account Created for '{account}'")
         _login(username, password)
-        
-def _login(username:str|None=None, password:str|None=None):
+
+
+def _login(username: str | None = None, password: str | None = None):
     print(f"{bcolors.HEADER}\nLogin.{bcolors.ENDC}")
     token = None
-    while token == None:
-        while username == None or password == None:
+    while token is None:
+        while username is None or password is None:
             try:
                 username = input("Username: ").strip()
                 password = input("Password: ").strip()
-            except:
+            except:  # noqa: E722
                 print(f"{bcolors.FAIL}Error: Invalid input.{bcolors.ENDC}")
         try:
             token = Client.getToken(username, password)
         except AssertionError:
-            print(f"{bcolors.FAIL}Invalid login details. Please try again.{bcolors.ENDC}\n")
+            print(
+                f"{bcolors.FAIL}Invalid login details. Please try again.{bcolors.ENDC}\n"
+            )
             username = None
             password = None
     else:
         client = Client(username, password, token)
         _menu(client)
-    
+
+
 def _menu(client):
     isRunning = True
     while isRunning:
         print(f"\n{bcolors.HEADER}Main Menu{bcolors.ENDC}")
         print(f"{bcolors.OKGREEN}Hello {client.username}.{bcolors.ENDC}")
         while True:
-            print("\n1. Manage friends\n2. See available games\n3. Start or join a lobby\n4. Quit")
+            print(
+                "\n1. Manage friends\n2. See available games\n3. Start or join a lobby\n4. Quit"
+            )
             option = input(": ").strip()
             match option:
                 case "1":
@@ -217,55 +239,77 @@ def _menu(client):
                     isRunning = False
                     break
                 case _:
-                    print(f"{bcolors.FAIL}Error: Invalid input '{option}'.{bcolors.ENDC}")
-                
-def _friends(client:Client):
+                    print(
+                        f"{bcolors.FAIL}Error: Invalid input '{option}'.{bcolors.ENDC}"
+                    )
+
+
+def _friends(client: Client):
     while True:
         print(f"{bcolors.HEADER}\nFriends.{bcolors.ENDC}")
         friends = client.getFriends()
-        friends = "\n\t".join([f"{i+1}. {friend['username']}" for i,friend in enumerate(friends["friends"])])
+        friends = "\n\t".join(
+            [
+                f"{i+1}. {friend['username']}"
+                for i, friend in enumerate(friends["friends"])
+            ]
+        )
         print(f"Friend list: \n\t{friends}")
-        # print("\nInput a Username to add new friend, remove a friend or leave blank to return to Main Menu")
         print("\n1. Add New Friend\n2. Remove Friend\n3. Return to Main Menu")
         while True:
             option = input(": ").strip()
             match option:
-                case "1"|"2":
+                case "1" | "2":
                     username = input("\nUsername: ").strip()
                     match option:
                         case "1":
                             try:
                                 client.addFriend(username)
-                                print(f"\n{bcolors.OKGREEN}Account '{username}' added as friend{bcolors.ENDC}")
+                                print(
+                                    f"\n{bcolors.OKGREEN}Account '{username}' added as friend{bcolors.ENDC}"
+                                )
                                 break
                             except AssertionError:
-                                print(f"\n{bcolors.FAIL}Error: No such account with username '{username}'.{bcolors.ENDC}")
+                                print(
+                                    f"\n{bcolors.FAIL}Error: No such account with username '{username}'.{bcolors.ENDC}"
+                                )
                         case "2":
                             try:
                                 client.removeFriend(username)
-                                print(f"\n{bcolors.OKGREEN}Account '{username}' removed as friend{bcolors.ENDC}")
+                                print(
+                                    f"\n{bcolors.OKGREEN}Account '{username}' removed as friend{bcolors.ENDC}"
+                                )
                                 break
                             except AssertionError:
-                                print(f"\n{bcolors.FAIL}Error: No such account with username '{username}' in friend list.{bcolors.ENDC}")
+                                print(
+                                    f"\n{bcolors.FAIL}Error: No such account with username '{username}' in friend list.{bcolors.ENDC}"
+                                )
                 case "3":
                     return None
                 case _:
-                    print(f"{bcolors.FAIL}Error: Invalid input '{option}'.{bcolors.ENDC}")
-       
-                
-def _game(client:Client):
+                    print(
+                        f"{bcolors.FAIL}Error: Invalid input '{option}'.{bcolors.ENDC}"
+                    )
+
+
+def _game(client: Client):
     while True:
         print(f"{bcolors.HEADER}\nGames{bcolors.ENDC}")
         availableGames = client.getGames()
-        availableGames = "\n\t".join([f"{id}. {game}" for id,game in availableGames.items()])
+        availableGames = "\n\t".join(
+            [f"{id}. {game}" for id, game in availableGames.items()]
+        )
         print(f"Available Games: \n\t{availableGames}")
         input("\nPress enter to return to main menu: ")
         return None
-    
-def _lobby(client:Client):
+
+
+def _lobby(client: Client):
     while True:
         print(f"{bcolors.HEADER}\nLobby.{bcolors.ENDC}")
-        print("\n1. Matchmaking\n2. See Friends' Lobbies\n3. Join Lobby\n4. Create Lobby\n5. Return to Main Menu")
+        print(
+            "\n1. Matchmaking\n2. See Friends' Lobbies\n3. Join Lobby\n4. Create Lobby\n5. Return to Main Menu"
+        )
         while True:
             option = input(": ").strip()
             match option:
@@ -284,29 +328,44 @@ def _lobby(client:Client):
                 case "5":
                     return None
                 case _:
-                    print(f"{bcolors.FAIL}Error: Invalid input '{option}'.{bcolors.ENDC}")
-        
+                    print(
+                        f"{bcolors.FAIL}Error: Invalid input '{option}'.{bcolors.ENDC}"
+                    )
 
-def _matchmaking(client:Client):
+
+def _matchmaking(client: Client):
     print(f"{bcolors.HEADER}\nMatchmaking.{bcolors.ENDC}")
     game = _gameInput(client)
-    if game == None:
+    if game is None:
         return None
     try:
-        l = client.findLobby(gameName=game)
+        lobby = client.findLobby(gameName=game)
     except AssertionError:
-        l = client.createLobby(gameName=game)
+        lobby = client.createLobby(gameName=game)
     time.sleep(1)
-    client.join(l["lobby-id"])
+    client.join(lobby["lobby-id"])
     return None
 
-def _friendsLobbies(client:Client):
+
+def _friendsLobbies(client: Client):
     print(f"{bcolors.HEADER}\nFriends' Lobbies.{bcolors.ENDC}")
     lobbies = client.friendLobbies()
-    lobbiesInfo = lambda lobbies: "\n\t\t".join([f"{bcolors.OKCYAN}{lobby['lobby-id']}{bcolors.ENDC}. {lobby['game-name']}" for lobby in lobbies])
-    lobbies = "\n\t".join([f"\n\t{i+1}. {account['account']['username']}:\n\t\t{lobbiesInfo(account['lobbies'])}" for i, account in enumerate(lobbies)])
+    lobbiesInfo = lambda lobbies: "\n\t\t".join(
+        [
+            f"{bcolors.OKCYAN}{lobby['lobby-id']}{bcolors.ENDC}. {lobby['game-name']}"
+            for lobby in lobbies
+        ]
+    )  # noqa: E731
+    lobbies = "\n\t".join(
+        [
+            f"\n\t{i+1}. {account['account']['username']}:\n\t\t{lobbiesInfo(account['lobbies'])}"
+            for i, account in enumerate(lobbies)
+        ]
+    )
     print(f"\nLobbies:{lobbies}")
-    print(f"Input {bcolors.OKCYAN}Lobby Id{bcolors.ENDC} to Join Friend or Press Enter to Return to Menu.")
+    print(
+        f"Input {bcolors.OKCYAN}Lobby Id{bcolors.ENDC} to Join Friend or Press Enter to Return to Menu."
+    )
     while True:
         option = input(": ").strip()
         if option == "":
@@ -319,10 +378,11 @@ def _friendsLobbies(client:Client):
             except ValueError:
                 print(f"{bcolors.FAIL}Error: Invalid input.{bcolors.ENDC}")
 
-def _joinLobby(client:Client):
+
+def _joinLobby(client: Client):
     print(f"{bcolors.HEADER}\nJoin Lobby.{bcolors.ENDC}")
     lobbyId = None
-    while lobbyId == None:
+    while lobbyId is None:
         try:
             lobbyId = input("\nLobby Id: ").strip()
             if lobbyId == "":
@@ -334,43 +394,40 @@ def _joinLobby(client:Client):
     try:
         client.join(lobbyId)
         return None
-    except:
+    except:  # noqa: E722
         return None
 
-def _createLobby(client:Client):
+
+def _createLobby(client: Client):
     print(f"{bcolors.HEADER}\nCreate Lobby.{bcolors.ENDC}")
     game = _gameInput(client)
     while True:
-        if game == None:
+        if game is None:
             return None
         try:
-            l = client.createLobby(gameName=game)
-            client.join(l["lobby-id"])
+            lobby = client.createLobby(gameName=game)
+            client.join(lobby["lobby-id"])
             return None
         except AssertionError:
             print(f"{bcolors.FAIL}Error: Invalid input.{bcolors.ENDC}")
 
-def _gameInput(client:Client) -> str:
+
+def _gameInput(client: Client) -> str:
     availableGames = client.getGames()
-    games = "\n\t".join([f"{id}. {game}" for id,game in availableGames.items()])
+    games = "\n\t".join([f"{id}. {game}" for id, game in availableGames.items()])
     print(f"\nAvailable Games: \n\t{games}")
     game = None
-    while game == None or not game.lower() in map(lambda x: x.lower(), availableGames.values()):
-        try: 
+    while game is None or game.lower() not in map(
+        lambda x: x.lower(), availableGames.values()
+    ):
+        try:
             game = input("Game: ").strip()
             if game == "":
                 return None
-        except:
+        except:  # noqa: E722
             print(f"{bcolors.FAIL}Error: Invalid input.{bcolors.ENDC}")
     return game
-    
-    
+
+
 if __name__ == "__main__":
-    # frog hat
-    # cat dog
-    # fish hook
-    from pprint import pprint
-    # c = Client("frog","hat")
-    # l = c.createLobby(gameName="RPS")
-    # c.join(l["lobby-id"])
     mainloop()
