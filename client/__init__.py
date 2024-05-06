@@ -1,7 +1,9 @@
-from udp import logging, logger
-import dotenv
-import sys
 import os
+import sys
+
+import dotenv
+
+from udp import logger, logging
 
 dotenv.load_dotenv()
 
@@ -18,9 +20,9 @@ except ValueError:
 except IndexError:
     offset = None
 
-if os.environ.get("DEBUG") != None:
+if os.environ.get("DEBUG") is not None:
     logger.setLevel(logging.WARNING)
-    while offset == None:
+    while offset is None:
         try:
             offset = int(input("\noffset: "))
         except ValueError:
@@ -28,5 +30,5 @@ if os.environ.get("DEBUG") != None:
 else:
     logger.setLevel(logging.ERROR)
 
-if offset != None:
+if offset is not None:
     C_PORT += offset
