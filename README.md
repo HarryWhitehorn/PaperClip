@@ -10,7 +10,7 @@ Requires: `python 3.11+`, `mysql server`
 
 ## mysql
 
-A mysql server must be set up containing a database called `paperclip`. The connection path must then be set in the `.env`. For convenience, the following is a example docker-compose to set up a mysql server and adminer (which can be used to create the `paperclip` database). This is the method use in testing thus the example set in the `.env`.
+A mysql server must be set up. The connection path must then be set as `SQLALCHEMY_DATABASE_URI` in the `.env`. For convenience, the following is a example docker-compose to set up a mysql server and adminer. This is the method use in testing thus the example path set in the `.env`.
 
 ```yaml
 # docker-compose.yaml
