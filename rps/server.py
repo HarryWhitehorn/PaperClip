@@ -3,6 +3,7 @@ from queue import Empty, Queue
 from threading import Lock
 
 from udp.auth import rsa
+from udp.packet import Flag, lazyFlags
 from udp.server import Server as UdpServer
 
 from . import MAX_PLAYERS, QUEUE_TIMEOUT, Choice, Outcome
@@ -43,7 +44,9 @@ class Server:
         )
 
     def send(self, addr: tuple[str, int], data: dict) -> None:
-        self.udpServer.queueDefault(addr, data=self.encodeData(data))
+        self.udpServer.queueDefault(
+            addr, flags=lazyFlags(Flag.RELIABLE), data=self.encodeData(data)
+        )
 
     def receive(self, addr: tuple[str, int], data: bytes) -> None:
         self.recvQueue.put((addr, self.decodeData(data)))
