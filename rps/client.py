@@ -135,7 +135,7 @@ class Client:
                     print("Waiting for other player...")
                     while self.isRunning:
                         try:
-                            addr, data = self.recvQueue.get(QUEUE_TIMEOUT)
+                            addr, data = self.recvQueue.get(timeout=QUEUE_TIMEOUT)
                             break
                         except Empty:
                             pass  # check still running

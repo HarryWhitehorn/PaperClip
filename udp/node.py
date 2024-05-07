@@ -218,6 +218,7 @@ class Node:
                 addr, p = self.queue.get(timeout=QUEUE_TIMEOUT)
                 if p.flags[packet.Flag.RELIABLE.value]:
                     if self.getSentAckBit(addr, p):
+                        self.queue.task_done()
                         continue
                     else:
                         self.sendPacket(addr, p)
