@@ -165,8 +165,8 @@ class Node:
 
     @staticmethod
     def getNewerSeqId(currentSeqId: int, newSeqId: int) -> int:
-        currentDiff = (newSeqId - currentSeqId) % (2**packet.ACK_BITS_SIZE)
-        newDiff = (currentSeqId - newSeqId) % (2**packet.ACK_BITS_SIZE)
+        currentDiff = (newSeqId - currentSeqId) % (2**packet.SEQUENCE_ID_SIZE)
+        newDiff = (currentSeqId - newSeqId) % (2**packet.SEQUENCE_ID_SIZE)
         if newDiff < currentDiff:
             return currentSeqId
         else:

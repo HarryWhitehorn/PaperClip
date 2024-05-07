@@ -127,6 +127,13 @@ class Statement:
         db.session.add(friends)
         db.session.commit()
         return friends
+    
+    @staticmethod
+    def createGame(id:int, name:str, min_players:int, max_players:int) -> Game:
+        game = Game(id=id, name=name, min_players=min_players, max_players=max_players)
+        db.session.add(game)
+        db.session.commit()
+        return game
 
     # find
     @staticmethod
