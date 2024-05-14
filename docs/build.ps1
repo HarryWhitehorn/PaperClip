@@ -1,0 +1,1 @@
+pandoc --listings -H docs\\pandoc\\listings-setup.tex --defaults docs\\pandoc\\pandoc_config.yaml docs\\readme.md -o docs\\pandoc\\output\\readme.pdf

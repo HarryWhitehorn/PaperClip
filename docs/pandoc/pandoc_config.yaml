@@ -1,0 +1,31 @@
+# Pandoc YAML Configuration File
+
+metadata:
+  # title: "Paperclip"
+  # subtitle: "Networking for Games"
+  # author: "Harry Whitehorn"
+  reference-section-title: References
+  link-citations: true
+  markdown: implicit_figures
+
+# input-file: "readme.md"
+# output-file: "Paperclip.pdf"
+
+pdf-engine: "xelatex"
+
+toc: true
+toc-depth: 4
+
+variables:
+  geometry: "left=2.5cm, top=2.5cm, right=2.5cm, bottom=2.5cm"
+  fontsize: "12pt"
+
+  # include-before: hello world
+
+bibliography: docs\ref\ref.bib
+csl: docs\pandoc\harvard-cite-them-right.csl
+
+filters:
+  - include-files.lua
+  - mermaid-filter.cmd
+  - citeproc

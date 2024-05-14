@@ -1,0 +1,101 @@
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|ccclcllll|}
+    \hline
+    \multicolumn{9}{|c|}{\textbf{Error   Codes}} \\ \hline
+    \multicolumn{1}{|c|}{\textbf{Major}} &
+      \multicolumn{1}{c|}{\textbf{Minor}} &
+      \multicolumn{2}{c|}{\textbf{Name}} &
+      \multicolumn{5}{c|}{\textbf{Description}} \\ \hline
+    \rowcolor[HTML]{DEFEDF} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{0}} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{CONNECTION}} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{Connection Handshake Could   Not Finish}} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}1} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFF8DD}NO SPACE} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFF8DD}Server has no more space} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}2} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFDDDD}CERTIFICATE INVALID} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFDDDD}Certificate is invalid /   cannot be validated} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\multirow{-4}{*}{\cellcolor[HTML]{FFF8DD}\textbf{1}}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}3} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFF8DD}FINISH INVALID} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFF8DD}Finished is invalid} \\ \hline
+    \rowcolor[HTML]{DEFEDF} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFDDDD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{0}} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{DISCONNECT}} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{A Party is Disconnecting}} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFDDDD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}1} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFF8DD}SERVER DISCONNECT} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFF8DD}The server is closing, all   clients must exit gracefully} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\multirow{-3}{*}{\cellcolor[HTML]{FFDDDD}\textbf{2}}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}2} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFDDDD}CLIENT DISCONNECT} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFDDDD}The client is closing, the   server must handle gracefully} \\ \hline
+    \rowcolor[HTML]{DEFEDF} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{0}} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{PACKET}} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{DEFEDF}\textbf{The Packet Cannot be   Read}} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}1} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFF8DD}VERSION} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFF8DD}The packet version does not   match the expected} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}2} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFDDDD}PACKET TYPE} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFDDDD}Unknown / invalid packet   type} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}3} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFF8DD}FLAGS} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFF8DD}Unknown / invalid flags} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}4} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFDDDD}SEQUENCE ID} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFDDDD}Sequence id does not match   expected} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}5} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFF8DD}FRAGMENT ID} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFF8DD}Unknown / invalid fragment   id} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}6} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFDDDD}FRAGMENT NUMBER} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFDDDD}Unknown / invalid fragment   number} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}7} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFF8DD}INIT VECTOR} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFF8DD}Unknown / invalid init   vector i.e. decrypt fail} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}8} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFDDDD}COMPRESSION} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFDDDD}Decompression fail} \\ \cline{2-9} 
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\multirow{-10}{*}{\cellcolor[HTML]{FFF8DD}\textbf{3}}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}9} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{FFF8DD}CHECKSUM} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{FFF8DD}Unknown / invalid checksum   i.e. checksum fail} \\ \hline
+    \rowcolor[HTML]{DDF0FF} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{DDF0FF}\textbf{4..15}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{DDF0FF}} &
+      \multicolumn{2}{c|}{\cellcolor[HTML]{DDF0FF}\textbf{RESERVED}} &
+      \multicolumn{5}{c|}{\cellcolor[HTML]{DDF0FF}} \\ \hline
+    \end{tabular}
+\end{table}

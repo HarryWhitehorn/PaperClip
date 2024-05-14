@@ -1,0 +1,135 @@
+\begin{table}[H]
+    \centering
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{|cllcccl|}
+    \hline
+    \multicolumn{1}{|c|}{\textbf{Login}} &
+      \multicolumn{1}{c|}{\textbf{Name}} &
+      \multicolumn{1}{c|}{\textbf{Endpoint}} &
+      \multicolumn{1}{c|}{\textbf{Method}} &
+      \multicolumn{1}{c|}{\textbf{Inputs}} &
+      \multicolumn{1}{c|}{\textbf{Returns}} &
+      \multicolumn{1}{c|}{\textbf{Description}} \\ \hline
+    \rowcolor[HTML]{DDF0FF} 
+    \multicolumn{7}{|c|}{\cellcolor[HTML]{DDF0FF}\textbf{Auth}} \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{F8696B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Create Account} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/auth/register} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}POST} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Username \&   Password} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Account} &
+      Register   a new Account in the database. \\ \hline
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}Get Token} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}/auth/token} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}Session Token} &
+      Generate   and provide a new session token for use by client. \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Get Key} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/auth/token} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Private Key} &
+      Get   Account private RSA key. \\ \hline
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}Get Cetficiate} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}/auth/certificate} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}Certificate} &
+      Get   the server's certificate. \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{F8696B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Validate Certificate} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/auth/certificate/validate} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Certificate} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}bool} &
+      Validate   that a given certificate was singed by the account in the fields. \\ \hline
+    \rowcolor[HTML]{DDF0FF} 
+    \multicolumn{7}{|c|}{\cellcolor[HTML]{DDF0FF}\textbf{Games}} \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Get Games} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/games} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}list{[}Game{]}} &
+      Return   a list of all available games. \\ \hline
+    \rowcolor[HTML]{DDF0FF} 
+    \multicolumn{7}{|c|}{\cellcolor[HTML]{DDF0FF}\textbf{Lobby}} \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Get Lobby} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/lobby} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Lobby ID} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Lobby} &
+      Return   the lobby with the provided lobby ID. \\ \hline
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}Get Lobbies} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}/lobby/all} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}list{[}Lobby{]}} &
+      Return   all lobbies. \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Create Lobby} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/lobby/create} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}POST} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Game Name | Game ID} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Lobby} &
+      Create   a new lobby with the given game and return it. \\ \hline
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}Find Lobby} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}/lobby/find} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}Game Name | Game ID} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}Lobby | None} &
+      Find   a lobby with the given game that has available space \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Get Friends' Lobbies} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/lobby/friends} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}list{[}Lobby{]}} &
+      Return   all lobbies with available space containing an Account registed as a   Friend \\ \hline
+    \rowcolor[HTML]{DDF0FF} 
+    \multicolumn{7}{|c|}{\cellcolor[HTML]{DDF0FF}\textbf{Friends}} \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Get Friends} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/friends} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}GET} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}list{[}Friend{]}} &
+      Return   a list of all Accounts registed as Friends \\ \hline
+    \rowcolor[HTML]{FFDDDD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}Add Friend} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFDDDD}/friends/add} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}POST} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}Username} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFDDDD}Friend} &
+      Register   a new Account as a Friend \\ \hline
+    \rowcolor[HTML]{FFF8DD} 
+    \multicolumn{1}{|c|}{\cellcolor[HTML]{63BE7B}} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}Remove Friend} &
+      \multicolumn{1}{l|}{\cellcolor[HTML]{FFF8DD}/friends/remove} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}DELETE} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}Username} &
+      \multicolumn{1}{c|}{\cellcolor[HTML]{FFF8DD}} &
+      Remove   an Account as a Friend \\ \hline
+    \end{tabular}%
+    }
+\end{table}
