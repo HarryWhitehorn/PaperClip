@@ -1,12 +1,20 @@
 # PaperClip
 
-## Note
+## Credit
 
-This software includes code that is based on or derived from `inputimeout`, a project by `johejo` available on [GitHub](https://github.com/johejo/inputimeout). The original code is licensed under the MIT License. Modifications have been made to the original code to prevent `win_inputimeout` from automatically appending a newline.
+This software includes code that is based on or derived from inputimeout, a project by johejo available on GitHub. The original code is licensed under the MIT License. Modifications have been made to the original code to prevent win_inputimeout from automatically appending a newline.
 
 ## Requirements
 
-Requires: `python 3.11+`, `mysql server`
+Requires: `python 3.11+`, `mysql server`.
+
+### Note
+
+This projects makes use of `ANSI` color prints.
+
+This feature is shipped with `Windows 10 - Build 16257` and later but may require enabling. [See instructions for registry edit to enable global default here.](https://superuser.com/a/1300251)
+
+Failure to enable `ANSI` color prints may result in color codes (e.g. `"\033[94m"`) being printed to the terminal.
 
 ## mysql
 
@@ -81,6 +89,6 @@ DEBUG = True
 
 Server: `python -m flask run`
 
-Client: `python -m client` or `python -m client offset` (where `offset` is some `int` such that `C_PORT` (from `.env`) becomes `C_PORT+=offset`)
+Client: `python -m client` or `python -m client` *`offset`* (where *`offset`* is some `int` such that `C_PORT` (from `.env`) becomes `C_PORT+=offset`)
 
 Tests: `pytest -v` (Note: may take some time with no output due to testing of thread locks)
